@@ -1,4 +1,4 @@
-# Figure 5. Ecology
+# Figure 6. Ecology
 
 {{< include ../../_extensions/gaospecial/fig-export/_setup.qmd >}}
 
@@ -563,8 +563,8 @@ datatable(
 本章所有面板（a–f）组合为一张图（差异代谢物条形图作为附图单独展示）。
 
 ```{r}
-#| label: fig5-composite
-#| fig-cap: "图5 组合图：(a) BIOLOG 碳源利用热图 (b) 代谢组 PCA (c) Pantoea 代谢物火山图 (d) Burkholderia 代谢物火山图 (e) 代谢物 Venn 图 (f) KEGG GSEA 富集比较"
+#| label: fig6-composite
+#| fig-cap: "图6 组合图：(a) BIOLOG 碳源利用热图 (b) 代谢组 PCA (c) Pantoea 代谢物火山图 (d) Burkholderia 代谢物火山图 (e) 代谢物 Venn 图 (f) KEGG GSEA 富集比较"
 #| fig-width: 12
 #| fig-height: 10
 #| out-width: 100%

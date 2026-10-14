@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use the code, data, or figures in this repository, please cite the associated article and this repository."
 title: "Resuscitation Drives the Emergence of Dominant Taxa in the Maize Seed Microbiota"
-abstract: "Reproduction code, processed input data, and rendered figures for the paper's Figures 1-5."
+abstract: "Reproduction code, processed input data, and rendered figures for the paper's Figures 1-4 and 6."
 version: 1.0.0
 date-released: 2026-10-14
 license: CC-BY-4.0

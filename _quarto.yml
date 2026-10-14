@@ -19,7 +19,7 @@ book:
     - analysis/figures/fig2.qmd
     - analysis/figures/fig3.qmd
     - analysis/figures/fig4.qmd
-    - analysis/figures/fig5.qmd
+    - analysis/figures/fig6.qmd
 
 format:
   fig-export-html:

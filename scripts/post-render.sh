@@ -6,7 +6,7 @@ cd "$ROOT"
 
 mkdir -p figures/release _book/output/figures
 
-for figure in 1 2 3 4 5; do
+for figure in 1 2 3 4 6; do
   for ext in png pdf pptx; do
     source_file=""
     for suffix in combine composite; do

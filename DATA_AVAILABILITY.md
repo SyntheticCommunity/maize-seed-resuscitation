@@ -2,7 +2,7 @@
 
 ## Figure reproduction
 
-All processed input data required to reproduce Figures 1-5 are included in
+All processed input data required to reproduce Figures 1-4 and 6 are included in
 this repository. The complete figure-level analysis is executable from these
 files with the R and Quarto configuration recorded in this repository.
 

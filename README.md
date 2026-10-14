@@ -30,7 +30,7 @@ Chun-Hui Gao^1,2,7,\*
 ## Scope
 
 This repository provides a self-contained reproduction path from processed
-input tables to Figures 1-5. The figure-level calculations, including
+input tables to Figures 1-4 and 6. The figure-level calculations, including
 diversity statistics, differential abundance, co-occurrence analysis, genome
 comparisons, and functional enrichment, are executed by the included Quarto
 documents.
@@ -74,7 +74,7 @@ to `figures/release/` with stable names such as `Figure1.pdf`.
 
 ```text
 .
-├── analysis/figures/     # Figure 1-5 source code and shared figure setup
+├── analysis/figures/     # Figures 1-4 and 6 source code and shared figure setup
 ├── data/                 # Processed and preparation inputs, plus checksums
 ├── figures/release/      # Final composite figures with stable names
 ├── output/               # Generated panel figures and tables
