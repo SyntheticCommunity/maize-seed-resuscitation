@@ -1,0 +1,14 @@
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+renv/library/
+renv/staging/
+renv/sandbox/
+.quarto/
+_book/
+_freeze/
+*.log
+
+/.quarto/
+**/*.quarto_ipynb

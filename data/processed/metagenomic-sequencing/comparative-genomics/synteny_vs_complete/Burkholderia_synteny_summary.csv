@@ -1,0 +1,22 @@
+query,query_species,query_completeness,query_n50,reference,ref_species,ref_size,mag_size,aligned_bases,aligned_fraction,ref_coverage,mean_identity,n_blocks,n_inversions,n_translocations,n_gaps_10kb,n_contigs
+A1_13_bin1,Burkholderia gladioli,100.0,158158,D112P05,Burkholderia gladioli,8511563,8308305,33061746,100.0,100.0,98.37,210,90,1,44,127
+A1_2_bin4,Burkholderia gladioli,99.78,249000,D112P05,Burkholderia gladioli,8511563,7899188,43471170,100.0,100.0,98.35,184,96,1,48,68
+A1_5_bin2,Burkholderia gladioli,100.0,224141,D112P05,Burkholderia gladioli,8511563,7292957,34786522,100.0,100.0,99.2,157,81,1,13,55
+A1_6_bin1,Burkholderia gladioli,100.0,123831,D112P05,Burkholderia gladioli,8511563,8422108,29020339,100.0,100.0,98.33,206,89,1,42,149
+A2_10_bin2,Burkholderia gladioli,100.0,202874,D112P05,Burkholderia gladioli,8511563,8088284,39362296,100.0,100.0,99.14,195,107,1,14,79
+A2_12_bin2,Burkholderia gladioli,100.0,194383,D112P05,Burkholderia gladioli,8511563,8073535,36831451,100.0,100.0,99.19,189,113,1,11,75
+A2_13_bin1,Burkholderia gladioli,100.0,133686,D112P05,Burkholderia gladioli,8511563,8110547,30389808,100.0,100.0,99.23,236,111,1,12,157
+A2_15_bin1,Burkholderia gladioli,99.95,196777,D112P05,Burkholderia gladioli,8511563,7800024,37984583,100.0,100.0,99.19,175,108,1,11,64
+A2_3_bin1,Burkholderia gladioli,100.0,139955,D112P05,Burkholderia gladioli,8511563,7959711,30391742,100.0,100.0,99.22,219,101,1,14,126
+A2_4_bin3,Burkholderia gladioli,100.0,180156,D112P05,Burkholderia gladioli,8511563,8084913,34414027,100.0,100.0,99.21,208,87,1,12,109
+A2_6_bin2,Burkholderia gladioli,100.0,149128,D112P05,Burkholderia gladioli,8511563,8076585,31213604,100.0,100.0,99.23,232,99,1,12,137
+A2_7_bin2,Burkholderia gladioli,100.0,181428,D112P05,Burkholderia gladioli,8511563,8062394,38472895,100.0,100.0,99.19,187,109,1,12,77
+A2_8_bin3,Burkholderia gladioli,100.0,202863,D112P05,Burkholderia gladioli,8511563,7909301,35137857,100.0,100.0,99.18,187,117,1,13,74
+A2_9_bin1,Burkholderia gladioli,100.0,133686,D112P05,Burkholderia gladioli,8511563,8129218,30298477,100.0,100.0,99.24,243,121,1,11,164
+A4_12_bin1,Burkholderia gladioli,100.0,204242,D112P05,Burkholderia gladioli,8511563,8343959,42041301,100.0,100.0,99.19,179,121,1,9,87
+A4_1_bin2,Burkholderia gladioli,100.0,125176,D112P05,Burkholderia gladioli,8511563,8271828,31078373,100.0,100.0,99.25,205,96,1,8,120
+A4_5_bin1,Burkholderia gladioli,100.0,121536,D112P05,Burkholderia gladioli,8511563,8331635,27130537,100.0,100.0,99.25,206,109,1,9,151
+A5_15_bin2,Burkholderia gladioli,100.0,201373,D112P05,Burkholderia gladioli,8511563,8541879,12119920,100.0,100.0,99.84,108,51,1,1,85
+A5_2_bin4,Burkholderia gladioli,100.0,222823,D112P05,Burkholderia gladioli,8511563,8101296,13938049,100.0,100.0,99.81,89,51,1,3,66
+A5_4_bin1,Burkholderia gladioli,96.13,202980,D112P05,Burkholderia gladioli,8511563,7415239,37005562,100.0,100.0,99.18,175,109,1,13,67
+A5_6_bin2,Burkholderia gladioli,100.0,92161,D112P05,Burkholderia gladioli,8511563,8658846,9023594,100.0,100.0,99.98,183,90,1,0,224

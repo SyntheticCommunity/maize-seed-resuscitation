@@ -1,0 +1,216 @@
+# Figure 3. Metagenome
+
+{{< include ../../_extensions/gaospecial/fig-export/_setup.qmd >}}
+
+{{< include _theme-setup.qmd >}}
+
+```{r}
+#| label: setup
+# ============================================================
+# Figure 3 — 2 panels
+# 数据来源: data/processed/metagenomic-sequencing/ 下的 bins 分析
+# 描述: 宏基因组 bins 进化树及属水平分布
+# ============================================================
+
+setwd(here::here())
+
+library(tidyverse)
+library(patchwork)
+library(ggtree)
+library(ggtreeExtra)
+library(ape)
+library(viridisLite)
+```
+
+### Panel A：Bins 进化树（环形系统发育树 + 分类注释 + 基因组大小）
+
+```{r}
+#| label: fig3-a-genus-top8
+
+# --- 数据加载 ---
+tax <- read_csv("data/processed/metagenomic-sequencing/bins_taxa.csv", show_col_types = FALSE)
+tree_raw <- phyloseq::read_tree("data/processed/metagenomic-sequencing/bin.bac120.user_msa.fasta.treefile")
+id_relation <- read_csv("data/processed/metagenomic-sequencing/sample_to_bin_id_mapping.csv", show_col_types = FALSE)
+
+# tax 表与映射表按行一一对应(已验证 bin_id 逐行一致),据此为每个 tip 关联分类信息
+# 注意:bin_id 本身不唯一(同一样本不同批次组装的同名 bin 是不同 MAG,属注释甚至冲突),不能用作 tip 标签
+tax_df <- as.data.frame(tax)
+tax_df$tip.label <- id_relation$sample_id
+
+# --- 属分组:只保留数量最多的 8 个属,其余归为 other ---
+top8_genus <- tax_df %>%
+  count(Genus, sort = TRUE) %>%
+  slice_head(n = 8) %>%
+  pull(Genus)
+
+genus_levels <- c(top8_genus, "other")
+tax_df$Genus_group <- factor(ifelse(tax_df$Genus %in% top8_genus,
+                                    tax_df$Genus, "other"),
+                             levels = genus_levels)
+
+# 配色:top8 属用 Set3,other 用灰色
+group_colors <- setNames(c(RColorBrewer::brewer.pal(8, "Set2"), "grey70"), genus_levels)
+
+# 按属分组，为树分支赋色
+cladegroup_g <- split(tax_df$tip.label, tax_df$Genus_group)
+tree_phy_annot <- groupOTU(tree_raw, cladegroup_g)
+```
+
+```{r}
+#| label: fig3-a-bin-tree
+#| fig-cap: "(A) Bins 环形系统发育树（分类注释与基因组大小）"
+#| fig-width: 8
+#| fig-height: 8
+
+# 绘制环形进化树 + 分类注释 + 基因组大小(属按 top8 + other 着色)
+f3a <- ggtree(tree_phy_annot,
+              aes(color = group),
+              layout = "circular",
+              branch.length = "none",
+              open.angle = 90) +
+  geom_tiplab(size = 1.5, hjust = 0) +
+  geom_fruit(
+    data = tax_df,
+    aes(y = tip.label, fill = Genus_group),
+    alpha = 0.1,
+    width = 6,
+    offset = 0.1,
+    geom = geom_tile,
+    show.legend = FALSE
+  ) +
+  geom_fruit(
+    data = tax_df,
+    geom = geom_col,
+    mapping = aes(y = tip.label, x = size),
+    offset = 0.1,
+    pwidth = 0.4,
+    show.legend = FALSE,
+    axis.params = list(
+      axis = "x",
+      text.size = 1,
+      hjust = 0.5,
+      vjust = 1
+    ),
+    grid.params = list()
+  ) +
+  scale_color_manual(values = group_colors) +
+  scale_fill_manual(values = group_colors) +
+  theme(legend.position = "right",
+        legend.text = element_text(size = 8))
+f3a
+```
+
+### Panel A2：Bins 进化树（常规布局，分支长度反映序列差异）
+
+```{r}
+#| label: fig3a-2
+#| fig-cap: "(A2) Bins 进化树（常规布局，分支长度反映序列差异）"
+#| fig-width: 10
+#| fig-height: 8
+
+# 与 fig3a 使用同一棵带属分组注释的树，
+# 但采用常规矩形布局，并保留原始分支长度（反映序列差异）
+f3a2 <- ggtree(tree_phy_annot) +
+  geom_tiplab(size = 1.5, hjust = 0) +
+  aes(color = group) +
+  geom_fruit(
+    data = tax_df,
+    geom = geom_col,
+    mapping = aes(y = tip.label, x = size, fill = Genus_group),
+    offset = 0.02,
+    pwidth = 0.4,
+    size = 0.1,
+    axis.params = list(
+      axis = "x",
+      text.size = 1,
+      hjust = 0.5,
+      vjust = 1
+    ),
+    grid.params = list()
+  ) +
+  scale_color_manual(values = group_colors) +
+  scale_fill_manual(values = group_colors) +
+  theme(legend.position = "right",
+        legend.text = element_text(size = 8))
+f3a2
+```
+
+### Panel B：属水平系统发育树 + 数量柱状图
+
+```{r}
+#| label: fig3-b-genus-tree
+#| fig-cap: "(B) 属水平系统发育树与数量柱状图"
+#| fig-width: 10
+#| fig-height: 6
+
+# --- 数据预处理 ---
+# 去掉 g__ 前缀
+tax_df$Genus <- gsub("^g__", "", tax_df$Genus)
+
+# 统计每个属出现次数
+genus_count <- tax_df %>%
+  group_by(Genus) %>%
+  summarise(num = n(), .groups = "drop") %>%
+  arrange(desc(num))
+
+# 建立 tip 与 Genus 对应关系（以唯一 tip 为单位）
+bin2genus <- tax_df[, c("tip.label", "Genus")]
+
+# 只保留每个属的第一个 bin 作为代表
+rep_bins <- bin2genus %>%
+  group_by(Genus) %>%
+  slice(1) %>%
+  pull(tip.label)
+
+# 从原树删除多余的 bin
+genus_tree <- drop.tip(tree_raw,
+                       setdiff(tree_raw$tip.label, rep_bins))
+
+# 把 tip 名称改成 Genus
+name_map <- bin2genus[match(genus_tree$tip.label,
+                            bin2genus$tip.label), ]
+genus_tree$tip.label <- name_map$Genus
+
+# --- 可视化 ---
+f3b <- ggtree(genus_tree,
+              layout = "circular",
+              branch.length = "none",
+              open.angle = 90) +
+  geom_tiplab(size = 2, hjust = -0.2) +
+  geom_tippoint(color = "grey60", size = 1, alpha = 0.8, show.legend = FALSE) +
+  geom_fruit(
+    data = genus_count,
+    geom = geom_col,
+    mapping = aes(y = Genus, x = num),
+    offset = 2.4,
+    pwidth = 2,
+    axis.params = list(
+      axis = "x",
+      text.size = 2.5,
+      hjust = 0.5,
+      vjust = 1
+    ),
+    grid.params = list(linetype = 1, color = "grey80", size = 0.3)
+  ) +
+  theme(text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        legend.text = element_text(size = 8),
+        legend.title = element_text(size = 8))
+f3b
+```
+
+```{r}
+#| label: fig3-combine
+#| fig-cap: "图 3 组合图（A、B 面板）"
+#| fig-width: 14
+#| fig-height: 8
+# ============================================================
+# Figure 3 组合与保存
+# ============================================================
+
+f3 <- (f3a + f3b + plot_layout(widths = c(1, 1.2))) +
+  plot_annotation(tag_levels = "A")
+f3
+
+# ggsave("output/fig3.png", width = 14, height = 8, units = "cm", dpi = 300)
+```

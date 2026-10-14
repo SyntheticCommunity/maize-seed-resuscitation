@@ -1,0 +1,5 @@
+ref=D014P08
+qry=D112P05
+ref_species=Burkholderia gladioli
+qry_species=Burkholderia gladioli
+comparison_type=Burkholderia gladioli (intraspecies)

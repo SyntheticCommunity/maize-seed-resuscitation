@@ -1,0 +1,269 @@
+# Figure 2. Microbiome
+
+{{< include ../../_extensions/gaospecial/fig-export/_setup.qmd >}}
+
+{{< include _theme-setup.qmd >}}
+
+```{r}
+#| label: setup
+# ============================================================
+# Figure 2 — 5 panels
+# 数据来源: analysis/amplicon/ 下的 wucl 系列分析
+# 描述: 玉米种子复苏菌群（玉米水）的自交系 vs 农家种扩增子分析
+# ============================================================
+
+setwd(here::here())
+
+library(tidyverse)
+library(microeco)
+library(magrittr)
+library(forcats)
+library(patchwork)
+
+# --- 共享数据加载（seed-water） ---
+PATH <- "data/processed/amplicon-sequencing/seed-water-all/"
+
+otu_table <- read_csv(file.path(PATH, "asv-table-adjusted.csv"))
+first_col <- names(otu_table)[1]
+otu_table <- otu_table |> column_to_rownames(var = first_col)
+otu_table <- as.data.frame(t(otu_table))
+
+seed_bank_info <- read_csv("data/processed/seed-bank/seed-bank.csv")
+
+sample_table <- read_csv(file.path(PATH, "sample-info.csv"))
+first_col_s <- names(sample_table)[1]
+sample_table <- sample_table |>
+  left_join(seed_bank_info) |>
+  mutate(genetic_group = fct_relevel(genetic_group, c("SS", "TST", "NSS", "3K", "Tibet"))) |>
+  column_to_rownames(var = first_col_s)
+
+taxon_table <- read_csv(file.path(PATH, "tax-table.csv"))
+first_col_t <- names(taxon_table)[1]
+taxon_table <- taxon_table |>
+  column_to_rownames(var = first_col_t) |>
+  mutate(Genus = if_else(Genus == "Burkholderia-Caballeronia-Paraburkholderia", "Burkholderia", Genus))
+
+# 构建 microtable 对象
+mt <- microtable$new(otu_table = otu_table, sample_table = sample_table, tax_table = taxon_table)
+mt$sample_table <- subset(mt$sample_table, genetic_group != "LocalSeed")
+mt$tax_table <- subset(mt$tax_table, !is.na(Phylum) & !is.na(Genus))
+mt$tidy_dataset()
+
+# --- 分组颜色方案 ---
+group_cols <- c(
+  SS    = "#E64B35",
+  TST   = "#4DBBD5",
+  NSS   = "#00A087",
+  `3K`  = "#3C5488",
+  Tibet = "#F39B7F"
+)
+
+material_cols <- c(
+  "landraces"    = "#00DCAF",
+  "inbred lines" = "#E69F00"
+)
+
+anno_colors <- list(
+  genetic_group = group_cols,
+  material_type = material_cols
+)
+```
+
+### Panel A：属水平群落结构（按遗传背景分面）
+
+```{r}
+#| label: fig2-a-barplot
+#| fig-cap: "(A) 属水平群落结构（按遗传背景分面）"
+#| fig-width: 12
+#| fig-height: 3.5
+t1 <- trans_abund$new(dataset = mt, taxrank = "Genus", ntaxa = 6)
+f2a = t1$plot_bar(
+  others_color = "grey70",
+  facet = "genetic_group",
+  xtext_keep = FALSE,
+  legend_text_italic = TRUE
+) + theme_pub()
+f2a
+```
+
+### Panel B：属水平热图
+
+```{r}
+#| label: fig2-b-heatmap
+#| fig-cap: "(B) 属水平丰度热图"
+#| fig-width: 8
+#| fig-height: 3.5
+library(ggplotify)
+
+t1 <- trans_abund$new(dataset = mt, taxrank = "Genus", ntaxa = 8)
+# 先获取 pheatmap 对象，再转 ggplot —— 走 as.grob.pheatmap 路径，避免重复绘图
+f2b_ph <- t1$plot_heatmap(
+  group = "genetic_group",
+  xtext_keep = FALSE,
+  withmargin = FALSE,
+  plot_breaks = c(0.01, 0.1, 1, 10),
+  pheatmap = TRUE,
+  treeheight_row = 15,      # 行树宽度缩小
+  treeheight_col = 20,      # 列树高度缩小
+  # 文字
+  fontsize = 8,
+  fontsize_row = 8,
+  fontsize_col = 8,
+
+  silent = TRUE,
+  show_colnames = FALSE,
+  annotation_col = mt$sample_table[, c("genetic_group", "material_type")],
+  annotation_colors = anno_colors
+)
+f2b <- as.ggplot(f2b_ph)
+f2b
+```
+
+### Panel C：高丰度菌属（Pantoea、Burkholderia 等）在不同组中的相对丰度
+
+```{r}
+#| label: fig2-c-high-abund
+#| fig-cap: "(C) 高丰度菌属（Pantoea、Burkholderia 等）在各组中的相对丰度"
+#| fig-width: 10
+#| fig-height: 4
+t1 <- trans_abund$new(dataset = mt, taxrank = "Genus", ntaxa = 4)
+
+# 提取数据自定义绘图
+plot_data <- t1$data_abund
+
+top6_taxa <- plot_data |>
+  distinct(Taxonomy, all_mean_abund) |>
+  arrange(desc(all_mean_abund)) |>
+  slice_head(n = 4) |>
+  pull(Taxonomy)
+
+plot_data <- plot_data |> filter(Taxonomy %in% top6_taxa)
+plot_data$genetic_group <- factor(plot_data$genetic_group,
+                                   levels = levels(mt$sample_table$genetic_group))
+plot_data$Taxonomy <- factor(plot_data$Taxonomy, levels = top6_taxa)
+
+f2c <- ggplot(plot_data, aes(x = genetic_group, y = Abundance, fill = genetic_group)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7, coef = 3) +
+  facet_wrap(~Taxonomy, ncol = 4) +
+  labs(x = NULL, y = "Relative abundance (%)") +
+  scale_y_log10(labels = function(x) paste0(x, "%")) +
+  theme(legend.position = "none")
+f2c
+```
+
+
+
+### Panel D：Alpha 多样性比较
+
+```{r}
+#| label: fig2-d-alpha
+#| fig-cap: "(D) Alpha 多样性比较"
+# Alpha 多样性分析需要使用原始 counts（未校正批次效应）进行抽平
+otu_raw <- read_csv(file.path(PATH, "asv-table-rawcount.csv"))
+first_col_or <- names(otu_raw)[1]
+otu_raw <- otu_raw |> column_to_rownames(var = first_col_or)
+otu_raw <- as.data.frame(t(otu_raw))
+
+sample_raw <- read_csv(file.path(PATH, "sample-info.csv"))
+first_col_sr <- names(sample_raw)[1]
+sample_raw <- sample_raw |>
+  left_join(seed_bank_info) |>
+  mutate(genetic_group = fct_relevel(genetic_group, c("SS", "TST", "NSS", "3K", "Tibet"))) |>
+  column_to_rownames(var = first_col_sr)
+
+taxon_raw <- read_csv(file.path(PATH, "tax-table.csv"))
+first_col_tr <- names(taxon_raw)[1]
+taxon_raw <- taxon_raw |>
+  column_to_rownames(var = first_col_tr) |>
+  mutate(Genus = if_else(Genus == "Burkholderia-Caballeronia-Paraburkholderia", "Burkholderia", Genus))
+
+mt_raw <- microtable$new(otu_table = otu_raw, sample_table = sample_raw, tax_table = taxon_raw)
+mt_raw$sample_table <- subset(mt_raw$sample_table, genetic_group != "LocalSeed")
+mt_raw$tax_table <- subset(mt_raw$tax_table, !is.na(Phylum) & !is.na(Genus))
+mt_raw$tidy_dataset()
+
+# 抽平到最小测序深度
+mt_rar <- clone(mt_raw)
+mt_rar$rarefy_samples(sample.size = min(mt_raw$sample_sums()))
+
+# 计算 Alpha 多样性指标
+measures <- c("Observed", "Chao1", "Shannon", "Simpson")
+mt_rar$cal_alphadiv(measures = measures)
+
+t1 <- trans_alpha$new(dataset = mt_rar, group = "genetic_group")
+t1$cal_diff(method = "KW_dunn", KW_dunn_letter = TRUE)
+
+plots <- lapply(measures, function(x) {
+  t1$plot_alpha(measure = x, add_sig = FALSE, outlier.shape = NA) + 
+    theme_pub() +
+    labs(subtitle = x, y = NULL)
+})
+
+f2d = wrap_plots(plots, ncol = 4, guides = "collect")
+f2d
+```
+
+### Panel E：CCREPE 共发生网络
+
+```{r}
+#| label: fig2-e-network
+#| fig-cap: "(E) CCREPE 共发生网络"
+#| fig-width: 10
+#| fig-height: 8
+library(ggraph)
+library(tidygraph)
+library(ggrepel)
+library(ccrepe)
+
+# CCREPE method based on NetCoMi package
+t1_net <- trans_network$new(dataset = mt, cor_method = "ccrepe", filter_thres = 1e-04, taxa_level = "Genus")
+t1_net$cal_network(COR_p_thres = 0.05, COR_cut = 0.05)
+t1_net$cal_module()
+
+# 获取节点和边表
+t1_net$get_node_table(node_roles = TRUE)
+t1_net$get_edge_table()
+
+# 自定义 ggraph 可视化
+net_df <- igraph::as_data_frame(t1_net$res_network)
+node_df <- t1_net$res_node_table
+tg <- tbl_graph(nodes = node_df, edges = net_df, directed = FALSE)
+
+f2e = ggraph(tg, layout = "fr") +
+  geom_edge_link(aes(width = weight, colour = label), alpha = 0.7) +
+  scale_colour_manual(values = c("+" = "#b2182b", "-" = "#2166ac")) +
+  scale_edge_width(range = c(0.8, 2.5)) +
+  geom_node_point(aes(colour = Genus, size = Abundance)) +
+  scale_size_continuous(range = c(1, 6), name = "Abundance") +
+  geom_node_text(aes(label = name), size = 2, fontface = "italic") +
+  scale_x_continuous(expand = expansion(0.2)) +
+  scale_y_continuous(expand = expansion(0.2)) +
+  theme_graph() +
+  theme(legend.position = "right")
+f2e
+```
+
+```{r}
+#| label: fig2-combine
+#| fig-cap: "图 2 组合图（A–E 面板）"
+#| fig-width: 12
+#| fig-height: 9
+# ============================================================
+# Figure 2 组合与保存
+# ============================================================
+
+library(cowplot)
+plot_grid(
+  plot_grid(f2a, f2b, ncol = 1, labels = letters[1:2]), align = "hv",
+  plot_grid(
+    plot_grid(f2c, f2d, ncol = 1, labels = letters[3:4]),
+    f2e,
+    ncol = 2,
+    rel_widths = c(4, 3), 
+    labels = c(NA, letters[5])
+  ),
+  rel_heights = c(2,2), 
+  ncol = 1
+)
+
+```

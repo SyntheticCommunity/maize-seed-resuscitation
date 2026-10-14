@@ -1,0 +1,609 @@
+# Figure 5. Ecology
+
+{{< include ../../_extensions/gaospecial/fig-export/_setup.qmd >}}
+
+{{< include _theme-setup.qmd >}}
+
+## 数据准备与库加载
+
+```{r}
+#| label: setup
+#| warning: false
+#| message: false
+
+library(tidyverse)
+library(patchwork)
+library(pheatmap)
+library(RColorBrewer)
+library(ggVennDiagram)
+library(clusterProfiler)
+library(gson)
+library(cowplot)
+
+# 配色方案
+COLORS = c(Pantoea = "#4DBBD5", Burkholderia = "#E64B35")
+```
+
+## A: BIOLOG 碳源利用热图
+
+### 数据准备
+
+```{r}
+#| label: biolog-data
+#| warning: false
+#| message: false
+
+library(tidyverse)
+library(pheatmap)
+library(RColorBrewer)
+
+# 读取碳源利用数据
+df_carbon <- read_csv("data/processed/biolog/df_biolog_pb_carbon.csv", show_col_types = FALSE)
+
+# 读取孔位映射
+well_mapping <- read_csv("data/processed/biolog/well_mapping_biolog.csv", show_col_types = FALSE)
+well_mapping_en <- setNames(well_mapping$Name_EN, well_mapping$Well)
+
+# 筛选碳源利用区（列 1-9）并排除阴性对照 A1
+wells_carbon <- well_mapping$Well[!grepl("10|11|12$", well_mapping$Well)]
+wells_carbon <- wells_carbon[wells_carbon != "A1"]
+
+# 构建热图矩阵：48h 最大 OD590（扣背景后）
+heatmap_data <- df_carbon |>
+  filter(Time == 48, Well %in% wells_carbon) |>
+  group_by(Strain, Genus, Replicate, Well) |>
+  summarise(OD = max(OD590_corrected, na.rm = TRUE), .groups = "drop") |>
+  pivot_wider(names_from = Well, values_from = OD, values_fill = 0) |>
+  as.data.frame()
+
+rownames(heatmap_data) <- paste(heatmap_data$Strain, heatmap_data$Replicate, sep = "_")
+
+# 构建矩阵并替换列名为英文碳源名
+heatmap_mat <- as.matrix(heatmap_data[, intersect(wells_carbon, colnames(heatmap_data))])
+colnames(heatmap_mat) <- well_mapping_en[colnames(heatmap_mat)]
+
+# 行注释：属信息
+row_ann <- data.frame(Genus = heatmap_data$Genus, row.names = rownames(heatmap_data))
+ann_colors <- list(
+  Genus = setNames(c("#4DBBD5", "#E64B35"), c("Pantoea", "Burkholderia"))
+)
+
+```
+
+### 热图
+
+```{r}
+#| label: fig-biolog-heatmap
+#| fig-cap: "Pantoea 与 Burkholderia 碳源利用热图（Biolog GENIII，48h 扣背景后 OD590）"
+#| fig-width: 14
+#| fig-height: 7
+#| warning: false
+#| message: false
+
+f5a <- pheatmap(heatmap_mat,
+         annotation_row = row_ann, annotation_colors = ann_colors,
+         cluster_rows = TRUE, cluster_cols = TRUE,
+         treeheight_row = 25, treeheight_col = 25,
+         fontsize_col = 6, fontsize_row = 8,
+         cellwidth = 9, cellheight = 11,
+         border_color = NA, silent = TRUE) |>
+  ggplotify::as.ggplot()
+
+f5a
+```
+
+**Pantoea** 偏向利用植物来源糖类（麦芽糖、蜜二糖、乳糖、棉子糖）和果胶降解产物（半乳糖醛酸、葡萄糖醛酸）；**Burkholderia** 偏向利用氨基酸（精氨酸、天冬氨酸、丝氨酸）、有机酸（丙酸、丁酸类）和糖醇（山梨醇、岩藻糖），体现不同的碳源代谢偏好。
+
+---
+
+## B: 代谢组差异分析
+
+### 数据准备
+
+```{r}
+#| label: metabolomics-data
+#| warning: false
+#| message: false
+
+library(readxl)
+library(ggVennDiagram)
+library(ggrepel)
+
+# 读取代谢组差异数据
+meta_all <- bind_rows(
+  read_xlsx("data/processed/rna-seq/Burkholderia/meta/BG_vs_CK_filter.xlsx") |> mutate(strain = "Burkholderia"),
+  read_xlsx("data/processed/rna-seq/Pantoea/meta/PS_vs_CK_filter.xlsx") |> mutate(strain = "Pantoea")
+) |>
+  mutate(
+    strain = factor(strain, levels = c("Pantoea", "Burkholderia")),
+    direction = case_when(
+      Log2FC < 0 ~ "Consumed",
+      Log2FC > 0 ~ "Produced",
+      TRUE ~ "Neutral"
+    )
+  ) |>
+  mutate(across(where(is.numeric), ~replace(., is.na(.), 0))) |>
+  filter(Level %in% c("1a", "1b", "2"))
+
+# 置信差异代谢物筛选：VIP ≥ 1, FDR < 0.05
+meta_all_sig <- meta_all |>
+  filter(VIP >= 1, FDR < 0.05)
+```
+
+### B1: PCA 分析
+
+```{r}
+#| label: metabolomics-pca
+#| warning: false
+#| message: false
+
+# PCA 输入
+expr <- meta_all |> select(bg_1:bg_3, ck_1:ck_3, ps_1:ps_3)
+expr_t <- t(expr)
+colnames(expr_t) <- meta_all$Compounds
+pca <- prcomp(expr_t, scale. = TRUE)
+
+# 样本注释
+sample_info <- data.frame(
+  sample = c(paste0("bg_", 1:3), paste0("ck_", 1:3), paste0("ps_", 1:3)),
+  strain = factor(c(rep("Burkholderia", 3), rep("Seed Metabolite", 3), rep("Pantoea", 3)),
+                   levels = c("Pantoea", "Burkholderia", "Seed Metabolite"))
+)
+
+pca_df <- data.frame(pca$x, sample = rownames(pca$x)) |>
+  left_join(sample_info, by = "sample")
+
+var_explained <- round(summary(pca)$importance[2, 1:2] * 100, 1)
+```
+
+```{r}
+#| label: fig-metabolomics-pca
+#| fig-cap: "Pantoea 与 Burkholderia 代谢物谱 PCA 分析"
+#| fig-width: 5
+#| fig-height: 4
+#| warning: false
+
+f5b1 <- ggplot(pca_df, aes(x = PC1, y = PC2, color = strain)) +
+  geom_point(size = 4) +
+  stat_ellipse(level = 0.95, linetype = "dashed") +
+  scale_color_manual(values = c("Pantoea" = "#4DBBD5", "Burkholderia" = "#E64B35", "Seed Metabolite" = "#999999")) +
+  labs(
+    x = paste0("PC1 (", var_explained[1], "%)"),
+    y = paste0("PC2 (", var_explained[2], "%)"),
+    color = NULL
+  ) +
+  theme_pub() +
+  theme(
+    legend.position = c(0.4, 0.6)
+  )
+
+f5b1
+```
+
+### B2: 火山图
+
+```{r}
+#| label: fig-metabolomics-volcano
+#| fig-cap: "Pantoea 与 Burkholderia 代谢物差异火山图（VIP ≥ 1, FDR < 0.05）"
+#| fig-width: 8
+#| fig-height: 4
+#| warning: false
+
+# 构建火山图数据
+volcano_df <- meta_all |>
+  mutate(
+    negLogFDR = -log10(FDR + 1e-300),
+    sig = case_when(
+      VIP >= 1 & FDR < 0.05 & Log2FC > 0 ~ "Produced",
+      VIP >= 1 & FDR < 0.05 & Log2FC < 0 ~ "Consumed",
+      TRUE ~ "NotSig"
+    )
+  )
+
+# 统计标签
+stats_df <- volcano_df |>
+  group_by(strain) |>
+  summarise(
+    up = sum(sig == "Produced"),
+    down = sum(sig == "Consumed"),
+    .groups = "drop"
+  ) |>
+  mutate(
+    up_text = paste0("Produced: ", up),
+    down_text = paste0("Consumed: ", down)
+  )
+
+make_volcano <- function(df, st, st_label) {
+  st_df <- filter(stats_df, strain == st)
+  ggplot(subset(df, strain == st), aes(Log2FC, negLogFDR, color = sig)) +
+    geom_point(data = subset(df, strain == st & VIP < 1), size = 0.4, alpha = 0.75, inherit.aes = FALSE) +
+    geom_point(data = subset(df, strain == st & VIP >= 1), size = 1.2, alpha = 0.75) +
+    scale_color_manual(values = c("Produced" = "#4575B4", "Consumed" = "#D73027", "NotSig" = "grey75"), name = NULL) +
+    geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.6) +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed", linewidth = 0.6) +
+    geom_text(data = st_df, aes(x = -Inf, y = Inf, label = down_text), color = "#D73027", fontface = "bold", size = 3, hjust = -0.1, vjust = 1.5, inherit.aes = FALSE) +
+    geom_text(data = st_df, aes(x = Inf, y = Inf, label = up_text), color = "#4575B4", fontface = "bold", size = 3, hjust = 1.1, vjust = 1.5, inherit.aes = FALSE) +
+    scale_y_continuous(expand = expansion(mult = c(0.05, 0.2))) +
+    labs(x = "Log2 Fold Change", y = expression(-log[10](FDR)), subtitle = st_label) +
+    theme_pub()
+}
+
+volcano_p1 <- make_volcano(volcano_df, "Pantoea", "Pantoea") + theme(legend.position = "none")
+volcano_p2 <- make_volcano(volcano_df, "Burkholderia", "Burkholderia") +
+  theme(legend.position = "inside",
+  legend.position.inside = c(0.7, 0.85))
+f5b2 <- volcano_p1 | volcano_p2
+f5b2
+```
+
+### B3: 韦恩图
+
+```{r}
+#| label: fig-metabolomics-venn
+#| fig-cap: "Pantoea 与 Burkholderia 差异代谢物四组 Venn 图（Consumed × Produced）"
+#| fig-width: 4
+#| fig-height: 3
+#| warning: false
+
+# 构建四组集合：Pantoea_Consumed, Pantoea_Produced, Burkholderia_Consumed, Burkholderia_Produced
+four_sets <- meta_all_sig |>
+  filter(direction != "Neutral") |>
+  mutate(group = paste(strain, direction, sep = "_")) |>
+  group_by(group) |>
+  summarise(compounds = list(unique(Compounds)), .groups = "drop")
+
+four_list <- setNames(four_sets$compounds, four_sets$group)
+# 固定顺序以便图例清晰
+four_list <- four_list[c("Pantoea_Consumed", "Pantoea_Produced",
+                          "Burkholderia_Consumed", "Burkholderia_Produced")]
+
+f5b3 <- ggVennDiagram(
+  four_list,
+  label = "count",
+  label_alpha = 0,
+  category.names = c("Pantoea\nConsumed", "Pantoea\nProduced",
+                     "Burkholderia\nConsumed", "Burkholderia\nProduced")
+) +
+  scale_fill_gradient(low = "white", high = "#B85450")
+
+f5b3
+```
+
+### B4: 代表性差异代谢物条形图
+
+```{r}
+#| label: fig-metabolomics-barplot
+#| fig-cap: "Pantoea 与 Burkholderia 代表性差异代谢物（Top VIP ∩ Top |Log2FC|）"
+#| fig-width: 8
+#| fig-height: 6
+#| warning: false
+
+# Top50 VIP 与 Top50 |Log2FC| 交集
+top_vip <- meta_all_sig |>
+  group_by(strain) |>
+  slice_max(order_by = VIP, n = 50, with_ties = FALSE) |>
+  ungroup() |>
+  select(strain, Compounds)
+
+top_fc <- meta_all_sig |>
+  group_by(strain) |>
+  slice_max(order_by = abs(Log2FC), n = 50, with_ties = FALSE) |>
+  ungroup() |>
+  select(strain, Compounds)
+
+top_df <- inner_join(top_vip, top_fc, by = c("strain", "Compounds")) |>
+  left_join(meta_all_sig, by = c("strain", "Compounds")) |>
+  arrange(strain, desc(abs(Log2FC)))
+
+# 排除与论文主线关联较弱的代谢物
+remove_metabolites <- c(
+  "Glu-Tyr", "Val-Tyr", "Oglufanide",
+  "4-Methoxybenzaldehyde", "Ethyl 3,4-dihydroxybenzoate"
+)
+
+top_df_clean <- top_df |>
+  filter(!Compounds %in% remove_metabolites)
+
+f5b4 <- ggplot(top_df_clean, aes(x = reorder(Compounds, Log2FC), y = Log2FC, fill = direction)) +
+  geom_col(width = 0.8) +
+  facet_wrap(~strain, scales = "free_x") +
+  coord_flip() +
+  scale_fill_manual(values = c("Produced" = "#4575B4", "Consumed" = "#D73027"), name = NULL) +
+  labs(x = NULL, y = "Log2 Fold Change") +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "top")
+
+f5b4
+```
+
+**代谢组小结：** Pantoea 以消耗可溶性糖（葡萄糖、果糖）和氨基酸（脯氨酸、酪氨酸）为主；Burkholderia 底物谱更广，消耗氨基酸（谷氨酸、缬氨酸）、有机酸和芳香族化合物，并积累羟基丁酸等代谢中间产物。两菌在苹果酸等核心碳源上存在共同消耗，但整体代谢策略呈现明显分化。
+
+---
+
+## C: 转录组 KEGG 通路富集
+
+### 数据准备与 GSEA 分析
+
+```{r}
+#| label: transcriptomics-data
+#| warning: false
+#| message: false
+
+library(gson)
+library(clusterProfiler)
+
+# 读取 DESeq2 结果
+res_pan <- read_csv("data/processed/rna-seq/pantoea_DeSeq2.csv", show_col_types = FALSE)
+res_bur <- read_csv("data/processed/rna-seq/burkholderia_DeSeq2.csv", show_col_types = FALSE)
+
+# 读取 KEGG gson
+kegg_pan <- read.gson("data/prep/lanc-kegg-pathway/gson/Pantoea-kegg-pathway.gson")
+kegg_bur <- read.gson("data/prep/lanc-kegg-pathway/gson/Burkholderia-kegg-pathway.gson")
+
+# 清洗基因 ID
+clean_id <- function(x) {
+  x <- sub(".*:", "", x)
+  x <- sub("\\.t[0-9]+$", "", x)
+  x
+}
+
+# 构建 GSEA 输入
+make_gene_list <- function(res_df) {
+  idx <- !is.na(res_df$log2FoldChange)
+  geneList <- res_df$log2FoldChange[idx]
+  names(geneList) <- clean_id(res_df$gene_id[idx])
+  sort(geneList, decreasing = TRUE)
+}
+
+# GSEA 主函数
+run_gsea <- function(gson_data, res_df, pvalueCutoff = 0.05) {
+  geneList <- make_gene_list(res_df)
+  if (length(geneList) < 50) return(NULL)
+  GSEA(
+    geneList = geneList, gson = gson_data,
+    minGSSize = 10, maxGSSize = 2000,
+    pvalueCutoff = pvalueCutoff,
+    verbose = FALSE
+  )
+}
+
+# 运行 GSEA
+gsea_pan <- run_gsea(kegg_pan, res_pan)
+gsea_bur <- run_gsea(kegg_bur, res_bur)
+
+# 提取结果
+extract_gsea_df <- function(gsea_res, species_name) {
+  if (is.null(gsea_res)) return(NULL)
+  df <- as.data.frame(gsea_res)
+  if (nrow(df) == 0) return(NULL)
+  df |> transmute(Description, Species = species_name, NES, setSize)
+}
+
+df_pan <- extract_gsea_df(gsea_pan, "Pantoea")
+df_bur <- extract_gsea_df(gsea_bur, "Burkholderia")
+
+# 过滤噪音通路
+noise_pattern <- paste(
+  "disease", "cancer", "atherosclerosis", "Tuberculosis", "Parkinson", "Thermogenesis",
+  "Cell cycle - Caulobacter", "Biofilm formation - Pseudomonas aeruginosa",
+  sep = "|"
+)
+df_pan <- df_pan[!grepl(noise_pattern, df_pan$Description, ignore.case = TRUE), ]
+df_bur <- df_bur[!grepl(noise_pattern, df_bur$Description, ignore.case = TRUE), ]
+
+# 构建通路 × 菌全集
+all_desc <- unique(c(df_pan$Description, df_bur$Description))
+gsea_df_all <- expand.grid(Description = all_desc, Species = c("Pantoea", "Burkholderia"),
+                           stringsAsFactors = FALSE) |>
+  left_join(bind_rows(df_pan, df_bur), by = c("Description", "Species")) |>
+  mutate(
+    Species = factor(Species, levels = c("Pantoea", "Burkholderia")),
+    Description = factor(Description, levels = rev(all_desc))
+  )
+```
+
+### KEGG 通路富集 Dotplot
+
+```{r}
+#| label: fig-transcriptomics-kegg-dotplot
+#| fig-cap: "Pantoea 与 Burkholderia KEGG 通路 GSEA 富集比较"
+#| fig-width: 10
+#| fig-height: 2.5
+#| warning: false
+
+# 翻转版本：Species 在 Y 轴，通路在 X 轴
+gsea_df_all_flip <- gsea_df_all
+gsea_df_all_flip$Species <- factor(
+  gsea_df_all_flip$Species,
+  levels = rev(c("Pantoea", "Burkholderia"))
+)
+
+# 绘制无图例的主图
+p_kegg_flip <- ggplot(
+  gsea_df_all_flip,
+  aes(x = Description, y = Species, size = setSize, color = NES)
+) +
+  geom_point() +
+  scale_color_gradient2(low = "#4575B4", mid = "#F7F7F7", high = "#D73027",
+                        midpoint = 0, name = "NES") +
+  scale_size(range = c(2, 8), name = "Gene set size") +
+  scale_x_discrete(position = "top") +
+  scale_y_discrete(labels = c("Pantoea" = expression(italic("Pantoea")),
+                              "Burkholderia" = expression(italic("Burkholderia")))) +
+  labs(x = NULL, y = NULL) +
+  theme_pub() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 0, vjust = 0, size = 7),
+    axis.text.y = element_text(size = 10),
+    legend.position = "none",
+    plot.margin = margin(t = 5, r = 80, b = 5, l = 5, unit = "pt")
+  )
+
+# 分别提取两个图例（隐藏另一个避免重复）
+legend_nes <- cowplot::get_legend(
+  p_kegg_flip + theme(legend.position = "bottom") +
+    guides(
+      color = guide_colorbar(title = "NES", barwidth = 8, barheight = 0.8),
+      size = "none"
+    )
+)
+legend_size <- cowplot::get_legend(
+  p_kegg_flip + theme(legend.position = "bottom") +
+    guides(
+      color = "none",
+      size = guide_legend(title = "Gene set size", nrow = 1)
+    )
+)
+
+# 组合图例：NES 在上，Size 在下
+combined_legend <- cowplot::plot_grid(legend_nes, legend_size, ncol = 1, rel_heights = c(1, 1))
+
+# 主图（不含图例）
+f5c <- p_kegg_flip
+f5c
+```
+
+**转录组小结：** Pantoea 富集于 Ribosome、Biosynthesis of amino acids、Carbon metabolism 等基础代谢和生长相关通路，支持其快速生长策略；Burkholderia 富集于 Flagellar assembly、Bacterial chemotaxis、Two-component system、Quorum sensing 等环境感知和群体行为相关通路，体现其优先启动环境适应机制而非快速增殖的策略。
+
+### DEG List
+
+```{r}
+#| label: tbl-deg-list
+#| warning: false
+#| message: false
+
+library(DT)
+
+# 读取基因注释（gene_name, product）
+annot_pan <- read_csv("data/processed/rna-seq/pantoea_gene_annotations.csv", show_col_types = FALSE)
+annot_bur <- read_csv("data/processed/rna-seq/burkholderia_gene_annotations.csv", show_col_types = FALSE)
+
+# 读取 DEG 数据并关联注释
+# gene_id 格式：DESeq2 为 ACSMXK_00005.t01，注释为 ACSMXK_00005，去掉 .tXX 后缀匹配
+deg_pan <- read_csv("data/processed/rna-seq/pantoea_DeSeq2.csv", show_col_types = FALSE) |>
+  mutate(gene_id = sub("\\.t[0-9]+$", "", gene_id)) |>
+  left_join(annot_pan, by = c("gene_id" = "gene_id")) |>
+  dplyr::select(gene_id, gene_name, product, log2FoldChange, padj) |>
+  arrange(padj)
+
+deg_bur <- read_csv("data/processed/rna-seq/burkholderia_DeSeq2.csv", show_col_types = FALSE) |>
+  mutate(gene_id = sub("\\.t[0-9]+$", "", gene_id)) |>
+  left_join(annot_bur, by = c("gene_id" = "gene_id")) |>
+  dplyr::select(gene_id, gene_name, product, log2FoldChange, padj) |>
+  arrange(padj)
+```
+
+```{r}
+#| label: deg-export-excel
+#| warning: false
+#| message: false
+
+library(openxlsx)
+
+deg_pan_filtered <- deg_pan |> filter(abs(log2FoldChange) > 2)
+deg_bur_filtered <- deg_bur |> filter(abs(log2FoldChange) > 2)
+
+dir.create("output/tables", recursive = TRUE, showWarnings = FALSE)
+
+write.xlsx(
+  list(
+    Pantoea = deg_pan_filtered,
+    Burkholderia = deg_bur_filtered
+  ),
+  "output/tables/DEG_log2FC2.xlsx"
+)
+```
+
+#### Pantoea DEG 表格
+
+```{r}
+#| label: tbl-deg-pantoea
+datatable(
+  deg_pan,
+  extensions = "Buttons",
+  options = list(
+    pageLength = 15,
+    dom = "Bfrtip",
+    buttons = list(
+      list(extend = "csv", text = "下载 CSV"),
+      list(extend = "excel", text = "下载 Excel")
+    )
+  ),
+  rownames = FALSE,
+  filter = "top"
+) |>
+  formatRound(columns = c("log2FoldChange", "padj"), digits = 4)
+```
+
+#### Burkholderia DEG 表格
+
+```{r}
+#| label: tbl-deg-burkholderia
+datatable(
+  deg_bur,
+  extensions = "Buttons",
+  options = list(
+    pageLength = 15,
+    dom = "Bfrtip",
+    buttons = list(
+      list(extend = "csv", text = "下载 CSV"),
+      list(extend = "excel", text = "下载 Excel")
+    )
+  ),
+  rownames = FALSE,
+  filter = "top"
+) |>
+  formatRound(columns = c("log2FoldChange", "padj"), digits = 4)
+```
+
+---
+
+## 拼图
+
+本章所有面板（a–f）组合为一张图（差异代谢物条形图作为附图单独展示）。
+
+```{r}
+#| label: fig5-composite
+#| fig-cap: "图5 组合图：(a) BIOLOG 碳源利用热图 (b) 代谢组 PCA (c) Pantoea 代谢物火山图 (d) Burkholderia 代谢物火山图 (e) 代谢物 Venn 图 (f) KEGG GSEA 富集比较"
+#| fig-width: 12
+#| fig-height: 10
+#| out-width: 100%
+#| warning: false
+#| message: false
+
+library(cowplot)
+
+row1 <- f5a
+
+row2 <- plot_grid(
+  f5b1, volcano_p1, volcano_p2, f5b3,
+  nrow = 1, labels = letters[2:5]
+)
+
+row3 <- plot_grid(
+  f5c, combined_legend,
+  nrow = 1, rel_widths = c(1, 0.2), labels = c("f", "")
+)
+
+plot_grid(
+  row1, row2, row3,
+  ncol = 1, rel_heights = c(4, 2, 2),
+  labels = c("a", "", "")
+)
+```
+
+---
+
+## 综合讨论
+
+Pantoea 与 Burkholderia 在碳源利用、代谢重塑和转录响应三个层面均表现出显著的生态位分化：
+
+| 层面 | Pantoea | Burkholderia |
+|------|---------|--------------|
+| **BIOLOG 碳源利用** | 植物来源糖类（麦芽糖、蜜二糖、乳糖）和果胶降解产物 | 氨基酸（精氨酸、天冬氨酸）、有机酸（丙酸、丁酸类）和糖醇 |
+| **代谢组 Consumed** | 可溶性糖（葡萄糖、果糖）和氨基酸（脯氨酸、酪氨酸） | 氨基酸（谷氨酸、缬氨酸）、有机酸和芳香族化合物 |
+| **代谢组 Produced** | 较少特异性产物 | 羟基丁酸等代谢中间产物 |
+| **转录组富集** | Ribosome、Amino acid biosynthesis、Carbon metabolism | Flagellar assembly、Chemotaxis、Quorum sensing |
+| **生态策略** | 植物碳源依赖型，快速生长 | 广谱有机质利用型，环境适应优先 |
+
+这种多层次的代谢分化表明，两菌在种子微生物组中可能通过资源利用差异实现生态位分离，降低直接竞争并促进共存。

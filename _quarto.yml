@@ -1,0 +1,41 @@
+project:
+  type: book
+  execute-dir: project
+  output-dir: _book
+  resources: [output/figures]
+  post-render: bash scripts/post-render.sh
+
+execute:
+  freeze: false
+  df-print: kable
+
+book:
+  title: "Resuscitation Drives the Emergence of Dominant Taxa in the Maize Seed Microbiota"
+  author: "Chenliao Wu, Cong Lan, Amina Hadayat, En Luo, et al."
+  date: today
+  chapters:
+    - index.qmd
+    - analysis/figures/fig1.qmd
+    - analysis/figures/fig2.qmd
+    - analysis/figures/fig3.qmd
+    - analysis/figures/fig4.qmd
+    - analysis/figures/fig5.qmd
+
+format:
+  fig-export-html:
+    theme: cosmo
+    toc: true
+    code-fold: true
+    fig-width: 8
+    fig-height: 6
+    warning: false
+    message: false
+    knitr:
+      opts_chunk:
+        export-config:
+          figure:
+            dir: output/figures
+            formats: [png, pdf, pptx]
+            dpi: 300
+        fig-export: true
+        tbl-export: false

@@ -1,0 +1,15 @@
+```{r}
+#| include: false
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(patchwork)
+library(ggrepel)
+
+source("scripts/utils/theme_pub.R")
+source("scripts/utils/registry.R")
+set_pub_defaults()
+
+theme_set(theme_pub())
+```

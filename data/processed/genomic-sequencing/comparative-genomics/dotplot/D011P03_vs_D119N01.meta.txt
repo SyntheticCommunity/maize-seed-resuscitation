@@ -1,0 +1,5 @@
+ref=D119N01
+qry=D011P03
+ref_species=Pantoea dispersa
+qry_species=Pantoea dispersa
+comparison_type=Pantoea dispersa (intraspecies)

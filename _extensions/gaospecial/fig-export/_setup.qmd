@@ -1,0 +1,23 @@
+```{r}
+#| label: fig-export-setup
+#| include: false
+# 载入扩展自带的 fig-export.R：从当前目录向上找 _extensions/ 里的 fig-export.R。
+# 文档里一行即可（路径相对本文档目录；子目录文档按层级写 ../_extensions/ 或 ../../_extensions/）：
+#   {{< include _extensions/gaospecial/fig-export/_setup.qmd >}}
+local({
+  d <- getwd()
+  hits <- character(0)
+  repeat {
+    hits <- list.files(file.path(d, "_extensions"), pattern = "^fig-export\\.R$",
+                       recursive = TRUE, full.names = TRUE)
+    if (length(hits) || identical(dirname(d), d)) break
+    d <- dirname(d)
+  }
+  if (!length(hits)) {
+    stop("fig-export: 没找到 _extensions/ 下的 fig-export.R",
+         "（请确认扩展已用 quarto add 安装）", call. = FALSE)
+  }
+  source(hits[[1]])
+  use_export()
+})
+```

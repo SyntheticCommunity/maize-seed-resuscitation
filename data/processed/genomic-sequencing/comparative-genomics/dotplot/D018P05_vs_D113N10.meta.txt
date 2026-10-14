@@ -1,0 +1,5 @@
+ref=D113N10
+qry=D018P05
+ref_species=Pantoea stewartii
+qry_species=Pantoea stewartii
+comparison_type=Pantoea stewartii (intraspecies)

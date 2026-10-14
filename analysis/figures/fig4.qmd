@@ -1,0 +1,693 @@
+# Figure 4. Isolation
+
+{{< include ../../_extensions/gaospecial/fig-export/_setup.qmd >}}
+
+{{< include _theme-setup.qmd >}}
+
+## 数据准备与库加载
+
+```{r}
+#| label: setup
+#| warning: false
+#| message: false
+
+library(tidyverse)
+library(patchwork)
+library(ggrepel)
+library(cowplot)
+library(pheatmap)
+
+# 分类树解析函数
+tax_levels = c("domain", "phylum", "class", "order", "family", "genus", "species")
+
+parse_taxonomy = function(tax_str) {
+    if (is.na(tax_str)) return(set_names(rep(NA_character_, 7), tax_levels))
+    parts = str_split_1(tax_str, ";\\s*")
+    names(parts) = tax_levels[seq_along(parts)]
+    parts
+}
+
+# 全局路径设置
+ROOT <- getwd()
+
+# WGS 完整基因组比较结果（7 株分离株完整基因组：ANI、mummer dotplot）
+WGS_CG_DIR <- file.path(ROOT, "data", "processed", "genomic-sequencing",
+                        "comparative-genomics")
+WGS_ANI_DIR <- file.path(WGS_CG_DIR, "ani")
+DOTPLOT_DIR <- file.path(WGS_CG_DIR, "dotplot")
+
+# MAG vs WGS 完整基因组参考的比较结果（共线性、SNP）
+MAG_CG_DIR <- file.path(ROOT, "data", "processed", "metagenomic-sequencing",
+                        "comparative-genomics")
+SYNT_COMPLETE_DIR <- file.path(MAG_CG_DIR, "synteny_vs_complete")
+SNP_COMPLETE_DIR <- file.path(MAG_CG_DIR, "snps_vs_complete")
+
+# MAG bin 重命名映射：全部 MAG 按自然排序统一编号为 bin01-bin54，
+# 供共线性面板（I）中 MAG query 的简洁标签使用
+all_bins = c(
+    read.csv(file.path(MAG_CG_DIR, "ani", "Pantoea_ani_matrix.csv"), check.names = FALSE)[[1]],
+    read.csv(file.path(MAG_CG_DIR, "ani", "Burkholderia_ani_matrix.csv"), check.names = FALSE)[[1]]
+) |>
+    unique() |>
+    str_sort(numeric = TRUE)
+
+bin_map = setNames(sprintf("bin%02d", seq_along(all_bins)), all_bins)
+```
+
+## A: Isolation composition
+
+### 数据准备
+
+```{r}
+#| label: isolation-data
+#| warning: false
+#| message: false
+
+# 种子材料信息
+seed_bank = read_csv("data/processed/seed-bank/seed-bank.csv")
+
+# 测序样品表
+sequencing_table = read_csv("data/processed/16s-rrna-gene/sanger_sequencing_sample_table.csv") |>
+    dplyr::select(tss_id, sequence_id, sample_id) |>
+    dplyr::rename(glycerol_stock_id = sample_id) |>
+    mutate(isolate_id = str_remove(glycerol_stock_id, "-R[0-9]+$"))
+
+# BLAST 分类鉴定结果
+blast_result_file = "data/processed/16s-rrna-gene/20250319_filtered_blast_taxonomy.txt"
+colnames = "qseqid sseqid pident length evalue bitscore staxids sscinames stitle" |>
+    str_split_1(" ")
+strain_taxonomy = read_tsv(blast_result_file, col_names = colnames) |>
+    group_by(qseqid) |>
+    slice_max(order_by = bitscore, n = 1, with_ties = FALSE) |>
+    ungroup() |>
+    dplyr::select(sequence_id = qseqid, taxid = staxids, percent_identity = pident) |>
+    left_join(sequencing_table, by = "sequence_id")
+
+# 完整分类树
+full_taxonomy = read_csv("data/processed/16s-rrna-gene/20250319_taxonomy.csv") |>
+    dplyr::select(sequencing_id, full_taxonomy = taxonomy) |>
+    mutate(sequencing_id = str_remove(sequencing_id, "\\.ab1$"))
+
+strain_taxonomy = strain_taxonomy |>
+    left_join(full_taxonomy, by = c("sequence_id" = "sequencing_id")) |>
+    mutate(taxonomy = if_else(is.na(full_taxonomy), NA_character_, full_taxonomy)) |>
+    dplyr::select(-full_taxonomy)
+```
+
+### Barplot + Piechart 组合
+
+```{r}
+#| label: isolation-barplot-pieplot
+#| fig-cap: "分离株属水平组成分析 (A) 按位置分布的属级组成柱状图 (B) 内生菌与外生菌比例"
+#| fig-width: 5
+#| fig-height: 5
+#| warning: false
+#| message: false
+
+# 数据处理
+high_quality_assignment = strain_taxonomy |>
+    filter(percent_identity > 90) |>
+    group_by(isolate_id) |>
+    slice_max(percent_identity)
+
+data = high_quality_assignment |>
+    rowwise() |>
+    mutate(
+        parsed = list(parse_taxonomy(taxonomy)),
+        genus = parsed[["genus"]],
+        species = parsed[["species"]]
+    ) |>
+    ungroup() |>
+    # 统一 Burkholderia 复合分支名（与 panel B 一致）
+    mutate(genus = if_else(genus == "Burkholderia-Caballeronia-Paraburkholderia",
+                           "Burkholderia", genus)) |>
+    separate(isolate_id, c("field_id", "user", "medium", "location", "no"),
+             sep = "-", extra = "merge", remove = FALSE) |>
+    left_join(seed_bank, by = "field_id") |>
+    dplyr::select(field_id, genus, location, genetic_group, material_type) |>
+    dplyr::filter(!is.na(genus)) |>
+    dplyr::filter(location %in% c("EN", "EP"))
+
+# EN/EP 共享配色（bar 与 pie 对齐）
+location_colors = c(EN = "#F8766D", EP = "#00BFC4")
+
+# A: 属级组成柱状图（保留 Top 8 属，其余归为 Other）
+bar_counts = data |>
+    mutate(genus = fct_lump_n(genus, n = 8, other_level = "Other")) |>
+    count(genus, location) |>
+    mutate(
+        genus = fct_reorder(genus, n, .fun = sum, .desc = TRUE),
+        genus = fct_relevel(genus, "Other", after = Inf)
+    )
+
+p_bar = bar_counts |>
+    ggplot(aes(genus, n, fill = location)) +
+    geom_col() +
+    scale_fill_manual(values = location_colors) +
+    labs(x = "Genus", y = "Number of isolates") +
+    theme(axis.text.x = element_text(angle = 30, hjust = 1),
+          legend.position = "none")
+
+# B: 内生菌与外生菌饼图（作为 inset 嵌入 A，不显示图例）
+p_pie = data |>
+    count(location) |>
+    mutate(proportion = n / sum(n) * 100) |>
+    ggplot(aes(x = "", y = n, fill = location)) +
+    geom_col(width = 1, color = "white") +
+    geom_text(aes(label = str_glue("{location}\n{round(proportion, 1)}%")),
+              position = position_stack(vjust = 0.5), size = 2.6) +
+    coord_polar(theta = "y") +
+    scale_fill_manual(values = location_colors) +
+    theme_void() +
+    theme(legend.position = "none")
+
+# 组合图：饼图嵌入柱状图右上方空旷区。
+# 注意：用 annotation_custom 而非 inset_element —— 后者会把 f4a 变成嵌套
+# patchwork 对象，导致拼图中 tag "a" 锚点偏移到面板中部；改用单一 grob 嵌入后
+# f4a 仍是普通 ggplot，tag 可正确锚定在左上角。x 用离散类别位置（1..9），
+# y 用堆叠柱高的比例定位，宽高比按数据坐标匹配以保持饼图为圆形。
+y_max = bar_counts |> summarise(total = sum(n), .by = genus) |> pull(total) |> max()
+
+f4a = p_bar +
+    annotation_custom(ggplotGrob(p_pie),
+                      xmin = 3.5, xmax = 8.5,
+                      ymin = 0.39 * y_max, ymax = 0.94 * y_max)
+f4a
+```
+
+## B: Amplicon composition
+
+### 方法比较 Dotplot
+
+```{r}
+#| label: amplicon-isolation-dotplot
+#| fig-cap: "扩增子测序与菌株分离方法的属级组成比较"
+#| fig-width: 8
+#| fig-height: 6
+#| warning: false
+#| message: false
+
+library(microeco)
+
+# 读取扩增子数据并构建 microtable 对象
+PATH = "data/processed/amplicon-sequencing/seed-water-all/"
+
+# OTU 表
+otu_table = read_csv(file.path(PATH, "asv-table-rawcount.csv"), show_col_types = FALSE)
+otu_table = column_to_rownames(otu_table, var = names(otu_table)[1])
+otu_table <- as.data.frame(t(otu_table))
+
+# 样品表
+seed_bank_info = read_csv("data/processed/seed-bank/seed-bank.csv", show_col_types = FALSE)
+sample_table = read_csv(file.path(PATH, "sample-info.csv"), show_col_types = FALSE) |>
+  left_join(seed_bank_info) |>
+  mutate(genetic_group = fct_relevel(genetic_group, c("SS","TST","NSS","3K","Tibet")))
+sample_table = column_to_rownames(sample_table, var = names(sample_table)[1])
+
+# 分类表
+taxon_table = read_csv(file.path(PATH, "tax-table.csv"), show_col_types = FALSE)
+taxon_table = column_to_rownames(taxon_table, var = names(taxon_table)[1])
+taxon_table = taxon_table |>
+  mutate(Genus = if_else(Genus == "Burkholderia-Caballeronia-Paraburkholderia", "Burkholderia", Genus))
+
+# 构建 microtable 对象
+mt = microtable$new(otu_table = otu_table, sample_table = sample_table, tax_table = taxon_table)
+mt$sample_table = subset(mt$sample_table, genetic_group != "LocalSeed")
+mt$tidy_dataset()
+mt$tax_table = subset(mt$tax_table, !is.na(Phylum))
+mt$tidy_dataset()
+
+# 计算属水平的物种丰度
+amplicon_genus = trans_abund$new(dataset = mt, taxrank = "Genus", ntaxa = 50)
+
+# 获取属级相对丰度数据
+amplicon_genus_df = amplicon_genus$data_abund |>
+    group_by(Taxonomy) |>
+    summarise(mean_abundance = mean(Abundance, na.rm = TRUE), .groups = "drop") |>
+    rename(Genus = Taxonomy) |>
+    filter(Genus != "NA", mean_abundance > 0.5) |>
+    arrange(desc(mean_abundance))
+
+# 读取分离株数据
+isolation_tax = read_csv("data/processed/16s-rrna-gene/20250319_taxonomy.csv", show_col_types = FALSE)
+
+isolation_tax = isolation_tax |>
+    separate(taxonomy, into = c("domain","phylum","class","order","family","genus","species"),
+             sep = ";", fill = "right", remove = FALSE) |>
+    mutate(genus = if_else(is.na(genus) | genus == "", "unclassified", genus)) |>
+    mutate(genus = if_else(genus == "Burkholderia-Caballeronia-Paraburkholderia", "Burkholderia", genus))
+
+isolation_tax = isolation_tax |>
+    mutate(sample_id_clean = str_remove(sample_id, "-R\\d+$")) |>
+    mutate(variant_code = str_split_i(sample_id_clean, "-", 6))
+
+isolation_tax_dedup = isolation_tax |>
+    group_by(sample_id_clean) |>
+    slice_max(order_by = nchar(taxonomy), n = 1, with_ties = FALSE) |>
+    ungroup()
+
+# 计算分离株属级比例
+isolation_genus_df = isolation_tax_dedup |>
+    count(genus, name = "count") |>
+    filter(genus != "unclassified") |>
+    mutate(total = sum(count)) |>
+    mutate(proportion = count / total * 100) |>
+    select(genus, count, proportion) |>
+    filter(proportion > 0.5) |>
+    arrange(desc(proportion))
+
+# 合并两种方法的属级比例
+comparison_df = amplicon_genus_df |>
+    select(Genus, amplicon_abundance = mean_abundance) |>
+    full_join(
+        isolation_genus_df |>
+            select(Genus = genus, isolation_proportion = proportion),
+        by = "Genus"
+    ) |>
+    mutate(across(where(is.numeric), ~replace_na(., 0))) |>
+    filter(Genus != "unclassified")
+
+# 绘制散点图（标注文字配色/字号与 c、d 面板一致：按 Genus 着色、size = 2；
+# 降低 max.overlaps，密集区域自动隐藏部分标签，避免文字过密）
+p_scatter = ggplot(comparison_df, aes(x = amplicon_abundance, y = isolation_proportion)) +
+    geom_point(aes(color = Genus), size = 3, alpha = 0.7, show.legend = FALSE) +
+    geom_smooth(method = "lm", se = FALSE, linetype = "dashed", color = "grey30") +
+    ggrepel::geom_text_repel(
+        aes(label = Genus, color = Genus),
+        size = 2, max.overlaps = 8, show.legend = FALSE
+    ) +
+    scale_x_log10() +
+    scale_y_log10() +
+    labs(x = "Amplicon (%)", y = "Isolation (%)") +
+    theme(legend.position = "top")
+
+# Spearman 相关标注（b/c/d 三个散点面板共用的辅助函数）
+# Spearman 基于秩次，与是否取 log 无关
+cor_label = function(x, y) {
+    ct = cor.test(x, y, method = "spearman", exact = FALSE)
+    sprintf("Spearman r = %.2f, P %s", unname(ct$estimate),
+            ifelse(ct$p.value < 0.001, "< 0.001", sprintf("= %.3f", ct$p.value)))
+}
+
+# 以居中 subtitle 形式标注相关系数（不遮挡数据点）
+f4b = p_scatter +
+    labs(subtitle = cor_label(comparison_df$amplicon_abundance,
+                              comparison_df$isolation_proportion)) +
+    theme(plot.subtitle = element_text(hjust = 0.5))
+
+f4b
+```
+
+### 自交系 vs 农家种 Dotplot
+
+```{r}
+#| label: inbred-landrace-dotplot
+#| fig-cap: "自交系与农家种的属级组成比较"
+#| fig-width: 8
+#| fig-height: 5
+#| warning: false
+#| message: false
+
+comp_c = data |>
+    filter(!is.na(material_type)) |>
+    group_by(material_type, genus) |>
+    summarise(n = n(), .groups = "drop") |>
+    mutate(proportion = n / sum(n) * 100, .by = material_type) |>
+    pivot_wider(id_cols = genus, names_from = material_type, values_from = proportion) |>
+    filter(!is.na(`inbred lines`), !is.na(landraces))
+
+f4c = comp_c |>
+    ggplot(aes(`inbred lines`, landraces)) +
+    geom_point(aes(color = genus), show.legend = FALSE) +
+    geom_smooth(method = "lm", se = FALSE, linetype = "dashed", color = "red") +
+    geom_text_repel(aes(label = genus, color = genus), size = 2, show.legend = FALSE) +
+    scale_x_log10() +
+    scale_y_log10() +
+    labs(x = "Inbred line relative abundance (%)",
+         y = "Landrace relative abundance (%)",
+         subtitle = cor_label(comp_c$`inbred lines`, comp_c$landraces)) +
+    theme(plot.subtitle = element_text(hjust = 0.5))
+
+f4c
+```
+
+### EN vs EP Dotplot
+
+```{r}
+#| label: en-ep-dotplot
+#| fig-cap: "内生菌与外生菌的属级组成比较"
+#| fig-width: 8
+#| fig-height: 5
+#| warning: false
+#| message: false
+
+comp_d = data |>
+    group_by(location, genus) |>
+    summarise(n = n(), .groups = "drop") |>
+    mutate(proportion = n / sum(n) * 100, .by = location) |>
+    pivot_wider(id_cols = genus, names_from = location, values_from = proportion) |>
+    filter(!is.na(EN), !is.na(EP))
+
+f4d = comp_d |>
+    ggplot(aes(EN, EP)) +
+    geom_point(aes(color = genus), show.legend = FALSE) +
+    geom_smooth(method = "lm", se = FALSE, linetype = "dashed", color = "red") +
+    geom_text_repel(aes(label = genus, color = genus), size = 2, show.legend = FALSE) +
+    scale_x_log10() +
+    scale_y_log10() +
+    labs(x = "Endophyte relative abundance (%)",
+         y = "Epiphyte relative abundance (%)",
+         subtitle = cor_label(comp_d$EN, comp_d$EP)) +
+    theme(plot.subtitle = element_text(hjust = 0.5))
+
+f4d
+```
+
+## C: ANI heatmap
+
+### 7 株完整基因组 ANI 热图
+
+```{r}
+#| label: ani-heatmap-wgs
+#| fig-cap: "7 株完整基因组 ANI 热图（按物种排列）"
+#| fig-width: 6
+#| fig-height: 5
+#| out-width: 100%
+#| warning: false
+#| message: false
+
+# 读取 7 株完整基因组的 fastANI 矩阵
+mat_ani <- read.csv(file.path(WGS_ANI_DIR, "all_ani_matrix.csv"),
+                    row.names = 1, check.names = FALSE)
+mat_ani[mat_ani == ""] <- NA
+mat_ani <- as.matrix(mat_ani)
+mode(mat_ani) <- "numeric"
+diag(mat_ani) <- 100
+
+# 按物种手动排序：P. dispersa → P. stewartii → B. gladioli
+# （跨属 ANI 未计算，以灰色 NA 显示，凸显 3 个物种的聚类区块）
+strain_order <- c("D011P03", "D119N01",      # P. dispersa
+                  "D018P05", "D113N10",      # P. stewartii
+                  "D014P08", "D053P02", "D112P05")  # B. gladioli
+mat_ani <- mat_ani[strain_order, strain_order]
+
+# 物种分组注释（行）
+anno_row <- data.frame(
+    Species = c("P. dispersa", "P. dispersa",
+                "P. stewartii", "P. stewartii",
+                "B. gladioli", "B. gladioli", "B. gladioli"),
+    row.names = strain_order
+)
+
+# 数值标签矩阵：跨属 NA 单元格留空，避免显示 "NA"
+num_mat <- ifelse(is.na(mat_ani), "", sprintf("%.1f", mat_ani))
+
+f4e = pheatmap(mat_ani,
+         color = colorRampPalette(c("#D73027", "#FDAE61", "#FFFFBF",
+                                     "#A6D96A", "#1A9641"))(100),
+         breaks = seq(75, 100, length.out = 101),
+         na_col = "grey90",
+         cluster_rows = FALSE, cluster_cols = FALSE,
+         annotation_row = anno_row,
+         annotation_colors = list(Species = c("P. dispersa" = "#4DBBD5",
+                                              "P. stewartii" = "#287D8E",
+                                              "B. gladioli" = "#E64B35")),
+         annotation_legend = FALSE,
+         display_numbers = num_mat,
+         fontsize_number = 5, number_color = "grey20",
+         border_color = "white",
+         fontsize_row = 7, fontsize_col = 7,
+         angle_col = 45,
+         silent = TRUE) |>
+    ggplotify::as.ggplot()
+
+f4e
+```
+
+## D: Mummer dotplot
+
+### 种内共线性点图（nucmer）
+
+每个物种取一个种内代表比对：X 轴为参考基因组，Y 轴为查询基因组。红色为正向比对（对角线方向），蓝色为反向比对（反对角线，反映反转事件）。
+
+```{r}
+#| label: mummer-dotplots
+#| fig-cap: "mummer 种内共线性点图（P. dispersa / P. stewartii / B. gladioli 各一代表）"
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 100%
+#| warning: false
+#| message: false
+
+# 加载 show-coords 解析与 dot plot 绘制函数
+source(file.path(ROOT, "scripts", "genomic-sequencing", "synteny_viz.R"))
+
+# 每个物种的种内代表比对对
+dotplot_pairs <- c("D011P03_vs_D119N01" = "P. dispersa",
+                   "D018P05_vs_D113N10" = "P. stewartii",
+                   "D112P05_vs_D014P08" = "B. gladioli")
+
+# 生成并统一美化三个点图
+dotplot_list <- lapply(names(dotplot_pairs), function(lbl) {
+    report_pair(DOTPLOT_DIR, lbl)$dot_plot +
+        ggtitle(dotplot_pairs[[lbl]]) +
+        theme_pub() +
+        theme(plot.title = element_text(face = "bold.italic", size = 10, hjust = 0.5),
+              axis.title = element_text(size = 8),
+              axis.text = element_text(size = 7),
+              legend.position = "top",
+              legend.title = element_text(size = 8),
+              legend.text = element_text(size = 7),
+              legend.key.size = unit(0.35, "cm"))
+})
+names(dotplot_list) <- names(dotplot_pairs)
+
+f4f = dotplot_list[["D011P03_vs_D119N01"]]
+f4g = dotplot_list[["D018P05_vs_D113N10"]]
+f4h = dotplot_list[["D112P05_vs_D014P08"]]
+
+f4f
+```
+
+## E: Synteny vs complete reference
+
+### 比对一致性
+
+```{r}
+#| label: synteny-identity
+#| fig-cap: "MAG 与 WGS 完整基因组参考的平均比对一致性"
+#| fig-width: 10
+#| fig-height: 6
+#| out-width: 100%
+#| warning: false
+#| message: false
+
+# 加载 MAG vs 完整基因组参考的共线性数据
+genuses <- c("Pantoea", "Burkholderia")
+synt_data <- lapply(genuses, function(g) {
+  path <- file.path(SYNT_COMPLETE_DIR, paste0(g, "_synteny_summary.csv"))
+  if (file.exists(path)) read_csv(path, show_col_types = FALSE) %>% mutate(Genus = g)
+})
+rearr <- lapply(genuses, function(g) {
+  path <- file.path(SYNT_COMPLETE_DIR, paste0(g, "_rearrangements.csv"))
+  if (file.exists(path)) read_csv(path, show_col_types = FALSE) %>% mutate(Genus = g)
+})
+
+# 固定 Genus 顺序（Pantoea 先于 Burkholderia），并提取物种简称作为分面
+synt_all <- bind_rows(synt_data) %>%
+  mutate(
+    Genus = factor(Genus, levels = genuses),
+    Species = case_when(
+      str_detect(query_species, "dispersa") ~ "P. dispersa",
+      str_detect(query_species, "stewartii") ~ "P. stewartii",
+      str_detect(query_species, "gladioli") ~ "B. gladioli"
+    ),
+    Species = factor(Species, levels = c("P. dispersa", "P. stewartii", "B. gladioli"))
+  )
+
+# 每个物种（参考菌株）的分面标签
+ref_names <- synt_all %>%
+  group_by(Species) %>%
+  summarise(ref = first(reference), .groups = "drop") %>%
+  { setNames(.$ref, .$Species) }
+
+# 所有比对覆盖度均为 100%，故以平均比对一致性刻画 MAG 与参考的相似程度
+f4i = synt_all %>%
+  mutate(query = unname(bin_map[query])) %>%
+  mutate(query = fct_reorder(query, mean_identity)) %>%
+  ggplot(aes(x = mean_identity, y = query, color = Genus)) +
+  geom_point(alpha = 0.7, size = 1.8) +
+  scale_color_manual(values = c(Pantoea = "#4DBBD5", Burkholderia = "#E64B35")) +
+  scale_x_continuous(breaks = c(98, 99, 100), limits = c(98, 100)) +
+  facet_wrap(~Species, scales = "free_y", ncol = 3,
+             labeller = labeller(Species = ~ paste0(.x, "\nvs ", ref_names[.x]))) +
+  labs(x = "Mean alignment identity (%)", y = NULL) +
+  theme_pub() +
+  theme(legend.position = "none",
+        axis.text.y = element_text(size = 5),
+        strip.text.x = element_text(size = 7))
+
+f4i
+```
+
+### 结构重排事件
+
+```{r}
+#| label: synteny-rearrangements
+#| fig-cap: "结构重排事件统计（MAG vs 完整基因组参考）"
+#| fig-width: 8
+#| fig-height: 5
+#| out-width: 100%
+#| warning: false
+#| message: false
+
+rearr_all <- bind_rows(rearr)
+
+f4j = synt_all %>%
+  select(Species, n_inversions, n_gaps_10kb) %>%
+  pivot_longer(-Species, names_to = "Metric", values_to = "Count") %>%
+  mutate(Metric = recode(Metric,
+                         n_inversions = "Inversions",
+                         n_gaps_10kb = "Gaps >10 kb")) %>%
+  ggplot(aes(x = Metric, y = Count, fill = Metric)) +
+  geom_boxplot(alpha = 0.6, width = 0.5) +
+  scale_fill_manual(values = c("Inversions" = "#E64B35",
+                                "Gaps >10 kb" = "#4DBBD5")) +
+  facet_wrap(~Species, ncol = 3) +
+  labs(x = NULL, y = "Count") +
+  theme_pub() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 7))
+
+f4j
+```
+
+## F: SNP & Indel vs complete reference
+
+### SNP 密度分布 (4组)
+
+```{r}
+#| label: snp-density
+#| fig-cap: "SNP 密度分布 (SNPs/kb) - MAG vs 完整基因组参考"
+#| fig-width: 8
+#| fig-height: 5
+#| out-width: 100%
+#| warning: false
+#| message: false
+
+# 加载 Pantoea SNP 数据
+pantoea_snp <- read_csv(file.path(SNP_COMPLETE_DIR, "Pantoea_snp_stats.csv"), show_col_types = FALSE) %>%
+  mutate(
+    Genus = "Pantoea",
+    Group = case_when(
+      query_species == "Pantoea dispersa" ~ "P. dispersa",
+      query_species == "Pantoea stewartii" ~ "P. stewartii",
+      TRUE ~ "Unknown"
+    )
+  ) %>%
+  filter(Group != "Unknown")
+
+# 加载 Burkholderia 按染色体统计的数据
+burkholderia_chrom_snp <- read_csv(file.path(SNP_COMPLETE_DIR, "Burkholderia_snp_chrom_stats.csv"), show_col_types = FALSE) %>%
+  filter(chromosome %in% c("Chr1", "Chr2")) %>%
+  mutate(
+    Genus = "Burkholderia",
+    Group = paste0("B. gladioli ", chromosome),
+    total_snps = snps,
+    snp_density_per_kb = density_per_kb,
+    ti_tv_ratio = ti_tv_ratio
+  )
+
+# 合并数据（按丰度排序结果固定分类顺序：Pantoea 先于 Burkholderia，
+# P. dispersa 先于 P. stewartii）
+snp_complete_all <- bind_rows(
+  pantoea_snp %>% select(Genus, Group, total_snps, snp_density_per_kb, ti_tv_ratio),
+  burkholderia_chrom_snp %>% select(Genus, Group, total_snps, snp_density_per_kb, ti_tv_ratio)
+) %>%
+  mutate(
+    Genus = factor(Genus, levels = c("Pantoea", "Burkholderia")),
+    Group = factor(Group, levels = c("P. dispersa", "P. stewartii",
+                                     "B. gladioli Chr1", "B. gladioli Chr2"))
+  )
+
+snp_complete_valid <- snp_complete_all %>%
+  filter(!is.na(total_snps), total_snps > 0)
+
+# SNP 密度图 - 4组比较
+f4k = snp_complete_valid %>%
+  filter(snp_density_per_kb > 0) %>%
+  ggplot(aes(x = Group, y = snp_density_per_kb, fill = Genus)) +
+  geom_boxplot(alpha = 0.6, width = 0.5, outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.5, size = 1.5, color = "#333333") +
+  scale_fill_manual(values = c(Pantoea = "#4DBBD5", Burkholderia = "#E64B35")) +
+  labs(y = "SNP density (SNPs/kb)", x = NULL) +
+  theme_pub() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+f4k
+```
+
+### Ti/Tv 比值分布 (4组)
+
+```{r}
+#| label: titv-ratio
+#| fig-cap: "Ti/Tv 比值分布 - MAG vs 完整基因组参考"
+#| fig-width: 8
+#| fig-height: 5
+#| out-width: 100%
+#| warning: false
+#| message: false
+
+f4l = snp_complete_valid %>%
+  filter(ti_tv_ratio > 0, ti_tv_ratio < 10) %>%
+  ggplot(aes(x = Group, y = ti_tv_ratio, fill = Genus)) +
+  geom_boxplot(alpha = 0.6, width = 0.5, outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.5, size = 1.5, color = "#333333") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "gray40", alpha = 0.5) +
+  geom_hline(yintercept = 2, linetype = "dotted", color = "gray40", alpha = 0.5) +
+  annotate("text", x = 0.5, y = 1, label = "Ti/Tv = 1",
+           hjust = 0, vjust = -0.5, size = 3, color = "gray40") +
+  annotate("text", x = 0.5, y = 2, label = "Ti/Tv = 2",
+           hjust = 0, vjust = -0.5, size = 3, color = "gray40") +
+  scale_fill_manual(values = c(Pantoea = "#4DBBD5", Burkholderia = "#E64B35")) +
+  labs(y = "Ti/Tv ratio", x = NULL) +
+  theme_pub() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+f4l
+```
+
+## 拼图
+
+本章所有面板（A–L）组合为一张图。
+
+```{r}
+#| label: fig4-composite
+#| fig-cap: "图4 组合图：(A) 分离株属级组成 (B) 扩增子vs分离方法比较 (C) 自交系vs农家种 (D) 内生vs外生 (E) 7 株完整基因组 ANI 热图 (F–H) mummer 种内共线性点图 (I) MAG vs 完整基因组比对一致性 (J) 结构重排事件 (K) SNP 密度 (L) Ti/Tv 比值"
+#| fig-width: 11
+#| fig-height: 10
+#| out-width: 100%
+#| warning: false
+#| message: false
+
+# 使用 patchwork 拼图：它会跨子图对齐绘图面板区域（plot panel），
+# 因此 a / k / l 这类 x 轴文字长且倾斜的面板能与同行其他面板自动对齐，
+# 这是 cowplot::plot_grid 处理旋转轴文字时容易错位的地方。
+# 此处逐面板手动指定 tag（labs(tag=...)），编号与正文引用保持一致。
+row1 = (f4a + labs(tag = "a")) | (f4b + labs(tag = "b")) |
+       (f4c + labs(tag = "c")) | (f4d + labs(tag = "d"))
+
+# 第二行：ANI 热图 + 3 个 mummer 点图；3 个点图共享同一 Orientation 图例
+row2 = ((f4e + labs(tag = "e")) | (f4f + labs(tag = "f")) |
+        (f4g + labs(tag = "g")) | (f4h + labs(tag = "h"))) +
+    plot_layout(guides = "collect") &
+    theme(legend.position = "top")
+
+row3 = (f4i + labs(tag = "i")) | (f4j + labs(tag = "j")) |
+       (f4k + labs(tag = "k")) | (f4l + labs(tag = "l"))
+
+(row1 / row2 / row3) &
+    theme(plot.tag = element_text(face = "bold", size = 14))
+```

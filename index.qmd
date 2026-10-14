@@ -1,0 +1,35 @@
+# Overview
+
+This reproducible Quarto book regenerates Figures 1-5 for:
+
+> **Resuscitation Drives the Emergence of Dominant Taxa in the Maize Seed Microbiota**
+
+The source documents start from processed input tables and rerun the
+figure-level analyses, including alpha and beta diversity, differential
+abundance, co-occurrence networks, genome comparisons, BIOLOG, metabolomics,
+and RNA-seq enrichment.
+
+## Authors
+
+Chenliao Wu, Cong Lan, Amina Hadayat, En Luo, Jun-Hao Huang, Xuan Ming,
+Zhao-Shuo Zhang, Rui Zhang, Xin-Hao Liu, Cheng Gao, Zuqing Meng,
+Kenichi Tsuda, Xin-Yu Wang, Rui Chen, Zhuo Wang, Wei-Hang Wang, Jia-Yi Li,
+Ning Yang, Fengping Song, Jianbing Yan, Peng Cai, and Chun-Hui Gao.
+
+## Reproduction boundary
+
+The bundled data are sufficient to render Figures 1-5 without downloading raw
+sequencing reads. Upstream steps such as DADA2, metagenomic assembly and
+binning, ANI, nucmer, and SNP calling are documented in `PROVENANCE.md` but are
+outside the execution scope of this repository.
+
+## Build
+
+```bash
+Rscript -e 'renv::restore()'
+make check
+make render
+```
+
+Render outputs are written to `_book/`, `output/figures/`, and
+`figures/release/`.

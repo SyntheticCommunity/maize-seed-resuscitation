@@ -1,0 +1,225 @@
+# Figure 1. Resuscitation
+
+
+{{< include ../../_extensions/gaospecial/fig-export/_setup.qmd >}}
+
+{{< include _theme-setup.qmd >}}
+
+
+```{r}
+#| label: setup
+# ============================================================
+# Figure 1 — 9 panels (A-I)
+# 数据来源: analysis/amplicon/ 下的 lanc 系列分析
+# ============================================================
+
+setwd(here::here())
+
+library(tidyverse)
+library(microeco)
+library(magrittr)
+library(ape)
+library(phangorn)
+library(sf)
+library(forcats)
+library(patchwork)
+
+# --- 共享数据加载（lanc） ---
+otu_table <- read.csv("data/processed/amplicon-sequencing/lanc/otu_table_mt.csv", row.names = 1)
+sample_table <- read.csv("data/processed/amplicon-sequencing/lanc/sample_table_mt.csv", row.names = 1) |>
+    mutate(type = factor(type, levels = c("soil", "OC", "RC")))
+taxon_table <- read.csv("data/processed/amplicon-sequencing/lanc/taxon_table_mt.csv", row.names = 1)
+
+mt <- microtable$new(otu_table = otu_table, sample_table = sample_table, tax_table = taxon_table)
+mt$tax_table <- subset(mt$tax_table, !is.na(Phylum))
+mt$tax_table$Genus[mt$tax_table$Genus == "g__Burkholderia-Caballeronia-Paraburkholderia"] <- "g__Burkholderia"
+mt$sample_table$place <- gsub("^GCA", "GCZ", mt$sample_table$place)
+mt$sample_table <- base::subset(mt$sample_table, !grepl("^E", place))
+mt$sample_table$type <- factor(mt$sample_table$type, levels = c("soil", "OC", "RC"))
+mt$otu_table <- mt$otu_table[, rownames(mt$sample_table)]
+mt$tidy_dataset()
+
+# --- 共享数据加载（含系统发育树，用于 UniFrac） ---
+tree_file <- "data/processed/amplicon-sequencing/lanc/asv.tree"
+lanc_tree <- read.tree(tree_file)
+tips_keep <- intersect(lanc_tree$tip.label, rownames(otu_table))
+lanc_tree <- keep.tip(lanc_tree, tips_keep)
+mt_tree <- microtable$new(
+  otu_table = otu_table,
+  sample_table = sample_table,
+  tax_table = taxon_table,
+  phylo_tree = lanc_tree
+)
+mt_tree$tidy_dataset()
+```
+
+### Panel A：采样地图
+
+```{r}
+#| label: fig1-a-map
+#| fig-cap: "(A) 采样点分布图"
+sample_info <- read.csv("data/processed/amplicon-sequencing/lanc/sample_table.csv",
+                        col.names = c("sample", "type", "place", "location", "coords"))
+unique_points <- sample_info |>
+  distinct(place, .keep_all = TRUE) |>
+  mutate(
+    lon = as.numeric(sub(",.*", "", coords)),
+    lat = as.numeric(sub(".*,", "", coords))
+  )
+
+china_provinces <- st_read("data/prep/map/china_provinces.geojson")
+china_national <- st_read("data/prep/map/china.json")
+
+f1a = ggplot() +
+  geom_sf(data = china_provinces, fill = "gray98", color = "lightgrey") +
+  geom_sf(data = china_national, fill = NA, color = "grey40", linewidth = 0.3) +
+  geom_point(data = unique_points, aes(x = lon, y = lat), color = "#e41a1c", size = 1, alpha = 0.8) +
+  theme_void() +
+  theme(margin = margin(0, 0, 0, 0, "cm")) 
+f1a
+```
+
+### Panel B：群落结构（条形图）
+
+```{r}
+#| label: fig1-b-barplot
+#| fig-cap: "(B) 属水平群落结构（按样本类型分面）"
+#| fig-width: 8
+#| fig-height: 3
+t1 <- trans_abund$new(dataset = mt, taxrank = "Genus", ntaxa = 8)
+mt$sample_table$type <- fct_relevel(mt$sample_table$type, "soil", "OC", "RC")
+f1b = t1$plot_bar(others_color = "grey70",
+            facet = "type",
+            xtext_keep = FALSE,
+            legend_text_italic = TRUE) + theme_pub()
+f1b
+```
+
+### Panel C：Alpha 多样性
+
+```{r}
+#| label: fig1-c-alpha
+#| fig-cap: "(C) Alpha 多样性指数组间比较"
+require(FSA); require(rcompanion)
+
+measures <- c("Observed", "Chao1", "Shannon", "Simpson")
+mt$cal_alphadiv(measures = measures)
+
+# 1. 先设置因子顺序
+mt$sample_table$type <- factor(mt$sample_table$type, levels = c("soil", "OC", "RC"))
+
+# 2. 创建对象并计算差异
+t1 <- trans_alpha$new(dataset = mt, group = "type")
+t1$cal_diff(method = "KW_dunn", KW_dunn_letter = TRUE)
+
+# 3. 【关键修复】强制 res_diff 的 Group 列顺序与样本表一致
+desired_levels <- levels(mt$sample_table$type)
+t1$res_diff$Group <- factor(t1$res_diff$Group, levels = desired_levels)
+t1$res_diff <- t1$res_diff[order(t1$res_diff$Group), ]
+rownames(t1$res_diff) <- NULL
+
+# 4. 绘图
+plots <- lapply(measures, function(x) {
+  t1$plot_alpha(measure = x, add = "jitter", point_size = 1) + 
+    theme_pub() +
+    theme(legend.position = "none")
+})
+
+f1c <- cowplot::plot_grid(plotlist = plots, ncol = 4, align = "hv")
+f1c
+```
+
+### Panel D：Beta 多样性 — Weighted UniFrac PCoA
+
+```{r}
+#| label: fig1-d-beta
+#| fig-cap: "(D) Beta 多样性：Weighted UniFrac PCoA"
+mt_tree$cal_betadiv(unifrac = TRUE)
+
+t1 <- trans_beta$new(dataset = mt_tree, group = "type", measure = "wei_unifrac")
+t1$cal_ordination(method = "PCoA")
+
+f1d = t1$plot_ordination(plot_color = "type", plot_type = c("point", "ellipse"), point_size = 1) +
+  theme_pub() +
+  theme(legend.position = "none")
+f1d
+```
+
+### Panel E：Heatmap
+
+```{r}
+#| label: fig1-e-heatmap
+#| fig-width: 8
+#| fig-height: 2.5
+library(ggplotify)
+
+t1 <- trans_abund$new(dataset = mt, taxrank = "Genus", ntaxa = 12)
+f1e <- as.ggplot(function() {
+  t1$plot_heatmap(
+    group = "place",
+    xtext_keep = TRUE,
+    withmargin = FALSE,
+    plot_breaks = c(0.01, 0.1, 1, 10),
+    pheatmap = TRUE,
+    treeheight_row = 20,      # 行树宽度缩小
+    treeheight_col = 15,      # 列树高度缩小   
+    # 文字
+    fontsize = 8,
+    fontsize_row = 8,
+    fontsize_col = 4, 
+    show_colnames = TRUE,
+    annotation_col = mt$sample_table[, "type", drop = FALSE],
+    annotation_colors = list(type = c(soil = "#1B9E77", OC = "#D95F02", RC = "#7570B3"))
+  )
+})
+f1e
+```
+
+### Panel F：ASV 差异分析（LEfSe）
+
+```{r}
+#| label: fig1-f-diff
+#| fig-cap: "(F) ASV 差异分析（LEfSe）"
+# 克隆 mt 避免干扰其他面板
+mt_diff <- clone(mt)
+mt_diff$cal_abund()
+mt_diff$taxa_abund$Genus <- mt_diff$taxa_abund$Genus[rowMeans(mt_diff$taxa_abund$Genus) > 0.01, ]
+mt_diff$tidy_dataset()
+
+t1 <- trans_diff$new(dataset = mt_diff, method = "lefse", group = "type", alpha = 0.01, taxa_level = "Genus")
+f1f = t1$plot_diff_abund(plot_type = "errorbar", 
+        keep_prefix = FALSE,
+        point_size = 1.5,
+        linewidth = 1,
+        xtext_size = 8,
+        ytitle_size = 9) +
+          theme(legend.position = "none")
+f1f
+```
+
+提取数据自己画。
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+```
+
+```{r}
+#| label: fig1-combine
+#| fig-cap: "图 1 组合图（A–I 面板）"
+#| fig-width: 10
+#| fig-height: 8
+# ============================================================
+# Figure 1 保存
+# ============================================================
+library(cowplot)
+plot_grid(
+  plot_grid(f1a, f1b, rel_widths = c(2,4), align = "hv", labels = LETTERS[1:2]),
+  plot_grid(plots[[1]], plots[[2]], plots[[3]], plots[[4]], f1d, rel_widths = c(1,1,1,1,2), align = "hv", ncol = 5, labels = LETTERS[3:7]),
+  plot_grid(f1e, f1f, rel_widths = c(4,2), align = "h", labels = LETTERS[8:9]),
+  ncol = 1
+)
+
+```

@@ -1,0 +1,26 @@
+title: Fig Export
+author: Chun-Hui Gao
+version: 0.1.0
+quarto-required: ">=1.4.0"
+contributes:
+  formats:
+    # 以 html 为基础格式：文档里写 format: fig-export-html 即可，
+    # 原有的 html 选项（theme / toc / ...）照旧写在同一个块里。
+    html:
+      knitr:
+        opts_chunk:
+          # 图表导出的全局配置；项目里可以按需覆盖，chunk 里也能局部覆盖
+          export-config:
+            figure:
+              dir: figures
+              formats: [png, pdf, pptx]
+              width: 7
+              height: 4.5
+              dpi: 300
+            table:
+              dir: tables
+              formats: [csv, xlsx]
+          # 默认不导出：在需要的 chunk 上写 #| fig-export: true
+          # 想全篇自动导出，把下面两行改成 true（单个 chunk 可用 false 关掉）
+          fig-export: false
+          tbl-export: false

@@ -1,0 +1,63 @@
+cff-version: 1.2.0
+message: "If you use the code, data, or figures in this repository, please cite the associated article and this repository."
+title: "Resuscitation Drives the Emergence of Dominant Taxa in the Maize Seed Microbiota"
+abstract: "Reproduction code, processed input data, and rendered figures for the paper's Figures 1-5."
+version: 1.0.0
+date-released: 2026-10-14
+license: CC-BY-4.0
+type: software
+authors:
+  - family-names: Wu
+    given-names: Chenliao
+  - family-names: Lan
+    given-names: Cong
+  - family-names: Hadayat
+    given-names: Amina
+  - family-names: Luo
+    given-names: En
+  - family-names: Huang
+    given-names: Jun-Hao
+  - family-names: Ming
+    given-names: Xuan
+  - family-names: Zhang
+    given-names: Zhao-Shuo
+  - family-names: Zhang
+    given-names: Rui
+  - family-names: Liu
+    given-names: Xin-Hao
+  - family-names: Gao
+    given-names: Cheng
+  - family-names: Meng
+    given-names: Zuqing
+  - family-names: Tsuda
+    given-names: Kenichi
+  - family-names: Wang
+    given-names: Xin-Yu
+  - family-names: Chen
+    given-names: Rui
+  - family-names: Wang
+    given-names: Zhuo
+  - family-names: Wang
+    given-names: Wei-Hang
+  - family-names: Li
+    given-names: Jia-Yi
+  - family-names: Yang
+    given-names: Ning
+  - family-names: Song
+    given-names: Fengping
+    email: zkxysfp@xza.edu.cn
+  - family-names: Yan
+    given-names: Jianbing
+    email: yjianbing@mail.hzau.edu.cn
+  - family-names: Cai
+    given-names: Peng
+    email: cp@mail.hzau.edu.cn
+  - family-names: Gao
+    given-names: Chun-Hui
+    email: gaoch@mail.hzau.edu.cn
+keywords:
+  - maize seed microbiota
+  - resuscitation
+  - seed microbiome
+  - amplicon sequencing
+  - comparative genomics
