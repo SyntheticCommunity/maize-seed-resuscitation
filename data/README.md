@@ -1,8 +1,8 @@
 # Bundled input data
 
 This directory contains only the processed and preparation data required to
-render Figures 1-5. The files preserve their original paths so the figure
-source code can read them without path rewriting.
+render Figures 1-6. Existing input paths were preserved where possible so the
+figure source code can read them without path rewriting.
 
 Raw sequencing reads, assemblies, intermediate alignment files, and the
 upstream workflows that produced these tables are not bundled. See

@@ -2,7 +2,7 @@
 
 ## Figure reproduction
 
-All processed input data required to reproduce Figures 1-4 and 6 are included in
+All processed input data required to reproduce Figures 1-6 are included in
 this repository. The complete figure-level analysis is executable from these
 files with the R and Quarto configuration recorded in this repository.
 
@@ -15,6 +15,7 @@ archive accession numbers should be used for those resources when available.
 Upstream processing categories represented by the bundled tables are:
 
 - 16S rRNA amplicon sequencing and DADA2 processing
+- BLINK GWAS for ASV1 (Pantoea) and ASV2 (Burkholderia)
 - Metagenomic assembly, binning, and bin characterization
 - Complete-genome and MAG comparative genomics, including ANI, synteny, and SNP analyses
 - RNA-seq quantification and differential-expression analysis

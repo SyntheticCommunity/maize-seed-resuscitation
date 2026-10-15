@@ -1,0 +1,146 @@
+# Figure 5. GWAS
+
+{{< include ../../_extensions/gaospecial/fig-export/_setup.qmd >}}
+
+{{< include _theme-setup.qmd >}}
+
+```{r}
+#| label: setup
+#| warning: false
+#| message: false
+# ============================================================
+# Figure 5 — overlapping Manhattan plot
+# 数据来源: ASV1 (Pantoea) 和 ASV2 (Burkholderia) 的 BLINK GWAS 结果
+# 压缩数据: data/processed/gwas/manhattan/fig5_asv1_asv2_manhattan.rds
+# ============================================================
+
+library(tidyverse)
+library(data.table)
+
+gwas_data <- readRDS("data/processed/gwas/manhattan/fig5_asv1_asv2_manhattan.rds")
+
+gwas_p_summary <- data.frame(
+  chr = gwas_data$chr,
+  pos = gwas_data$pos,
+  Pantoea = gwas_data$p_value[, 1],
+  Burkholderia = gwas_data$p_value[, 2],
+  check.names = FALSE
+)
+
+p_threshold <- 1 / 280000
+
+gwas_long <- gwas_p_summary |>
+  pivot_longer(
+    cols = c(Pantoea, Burkholderia),
+    names_to = "Trait",
+    values_to = "P"
+  ) |>
+  mutate(
+    logP = -log10(P),
+    significant = P < p_threshold
+  )
+
+chr_sizes <- gwas_long |>
+  group_by(chr) |>
+  summarise(chr_len = max(pos), .groups = "drop") |>
+  arrange(chr) |>
+  mutate(
+    offset = lag(cumsum(chr_len), default = 0),
+    center = offset + chr_len / 2,
+    chr_bg = ifelse(chr %% 2 == 1, "gray70", "gray40")
+  )
+
+gwas_long <- gwas_long |>
+  left_join(chr_sizes, by = "chr") |>
+  mutate(BPcum = pos + offset)
+
+# 非显著位点仅用于背景密度显示；按 5 kb 窗口保留最小 P 值，
+# 显著位点全部保留。统计分析仍使用完整数据。
+gwas_plot <- as.data.table(gwas_long)
+gwas_plot[, window := pos %/% 5000L]
+
+plot_columns <- c(
+  "chr", "pos", "Trait", "P", "logP", "significant",
+  "chr_bg", "center", "offset", "BPcum"
+)
+
+gwas_background <- gwas_plot[
+  significant == FALSE,
+  .SD[which.min(P)],
+  by = .(Trait, chr, window)
+][, ..plot_columns]
+
+gwas_plot <- rbindlist(list(
+  gwas_plot[significant == TRUE, ..plot_columns],
+  gwas_background
+))
+```
+
+```{r}
+#| label: fig5-composite
+#| fig-cap: "图5 重叠曼哈顿图：Pantoea (ASV1) 与 Burkholderia (ASV2)"
+#| fig-width: 10
+#| fig-height: 5
+#| warning: false
+#| message: false
+
+top2_overlay_manhattan <- ggplot() +
+  ggrastr::rasterise(
+    geom_point(
+      data = subset(gwas_plot, !significant),
+      aes(BPcum, logP, color = chr_bg),
+      alpha = 0.25,
+      size = 0.4
+    ),
+    dpi = 300
+  ) +
+  scale_color_identity() +
+  ggrastr::rasterise(
+    geom_point(
+      data = subset(gwas_plot, significant),
+      aes(BPcum, logP, color = Trait),
+      alpha = 0.65,
+      size = 0.9
+    ),
+    dpi = 300
+  ) +
+  scale_color_manual(
+    values = c(
+      Pantoea = "#3C5488",
+      Burkholderia = "#E64B35",
+      gray70 = "gray70",
+      gray40 = "gray40"
+    ),
+    breaks = c("Pantoea", "Burkholderia")
+  ) +
+  geom_hline(
+    yintercept = -log10(p_threshold),
+    linetype = "dashed",
+    color = "grey30",
+    linewidth = 0.6
+  ) +
+  scale_x_continuous(
+    breaks = chr_sizes$center,
+    labels = paste0("Chr", chr_sizes$chr),
+    expand = c(0.01, 0.01)
+  ) +
+  labs(
+    x = "Chromosome",
+    y = expression(-log[10](italic(P)))
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    panel.border = element_blank(),
+    panel.grid = element_blank(),
+    axis.line = element_line(linewidth = 1.1, color = "black"),
+    axis.ticks = element_line(linewidth = 1.0, color = "black"),
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(size = 14),
+    legend.title = element_blank(),
+    legend.position = "top",
+    legend.text = element_text(size = 12),
+    legend.key.size = unit(1.2, "cm")
+  )
+
+top2_overlay_manhattan
+```

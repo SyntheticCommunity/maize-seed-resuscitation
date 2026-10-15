@@ -16,14 +16,16 @@ other step requiring raw sequencing data.
 | Figure 2 | Seed-water amplicon communities across maize genetic groups | DADA2, ASV table construction, batch adjustment, taxonomy assignment, and sample metadata assembly |
 | Figure 3 | Metagenome-assembled genome bins | Metagenomic assembly, binning, bin quality assessment, taxonomic annotation, and phylogenetic tree inference |
 | Figure 4 | Cultured isolates and comparative genomics | Sanger/16S identification, isolate composition, complete-genome ANI, nucmer alignment, MAG-to-complete-genome synteny, and SNP calling |
+| Figure 5 | GWAS Manhattan plots for ASV1 and ASV2 | BLINK GWAS of Pantoea (ASV1) and Burkholderia (ASV2); the bundled RDS contains chromosome, position, and p-values only |
 | Figure 6 | BIOLOG, metabolomics, and RNA-seq | BIOLOG preprocessing, metabolomics differential analysis, RNA-seq quantification, DESeq2 analysis, annotation, and KEGG pathway construction |
 
 ## Preservation choices
 
-- Original relative paths under `data/processed/` and `data/prep/` were kept so the figure source code remains directly traceable to the project that produced the paper.
-- Only files read by Figures 1-4 and 6 are included.
+- Original relative paths under `data/processed/` and `data/prep/` were kept where possible so the figure source code remains directly traceable to the project that produced the paper.
+- The Figure 5 GWAS inputs were reduced to ASV1 and ASV2 and stored as a compressed RDS containing only chromosome, position, and p-values.
+- Only files read by Figures 1-6 are included.
 - Generated DEG workbooks are redirected to `output/tables/` rather than an input-data directory.
-- Placeholder Figures 6 and 7 are excluded.
+- Placeholder chapters from the wider analysis project are excluded.
 
 The SHA256 checksums and byte sizes of all bundled data files are recorded in
 `data/MANIFEST.tsv`.

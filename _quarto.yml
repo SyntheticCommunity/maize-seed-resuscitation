@@ -19,12 +19,14 @@ book:
     - analysis/figures/fig2.qmd
     - analysis/figures/fig3.qmd
     - analysis/figures/fig4.qmd
+    - analysis/figures/fig5.qmd
     - analysis/figures/fig6.qmd
 
 format:
   fig-export-html:
     theme: cosmo
     toc: true
+    number-sections: false
     code-fold: true
     fig-width: 8
     fig-height: 6

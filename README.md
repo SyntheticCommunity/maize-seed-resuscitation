@@ -30,19 +30,18 @@ Chun-Hui Gao^1,2,7,\*
 ## Scope
 
 This repository provides a self-contained reproduction path from processed
-input tables to Figures 1-4 and 6. The figure-level calculations, including
-diversity statistics, differential abundance, co-occurrence analysis, genome
-comparisons, and functional enrichment, are executed by the included Quarto
-documents.
+input tables to Figures 1-6. The figure-level calculations, including
+diversity statistics, differential abundance, co-occurrence analysis, GWAS
+Manhattan plots, genome comparisons, and functional enrichment, are executed
+by the included Quarto documents.
 
 The repository does not bundle raw reads, assemblies, alignment intermediates,
-or the upstream workflows for DADA2, metagenomic assembly and binning, ANI,
-nucmer, or SNP calling. Those upstream sources are recorded in
+or the upstream workflows for DADA2, BLINK GWAS, metagenomic assembly and
+binning, ANI, nucmer, or SNP calling. Those upstream sources are recorded in
 [`PROVENANCE.md`](PROVENANCE.md), and public data-accession information is
 maintained in [`DATA_AVAILABILITY.md`](DATA_AVAILABILITY.md).
 
-Figures 6 and 7 were placeholders in the original analysis project and are not
-included.
+Placeholder chapters from the wider analysis project are not included.
 
 ## Build
 
@@ -74,7 +73,7 @@ to `figures/release/` with stable names such as `Figure1.pdf`.
 
 ```text
 .
-├── analysis/figures/     # Figures 1-4 and 6 source code and shared figure setup
+├── analysis/figures/     # Figures 1-6 source code and shared figure setup
 ├── data/                 # Processed and preparation inputs, plus checksums
 ├── figures/release/      # Final composite figures with stable names
 ├── output/               # Generated panel figures and tables
